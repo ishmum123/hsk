@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HSK pinyin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EEF0ED;--ink:#1B2321;--mute:#5C6B67;--line:#D6DAD7;--card:#FFFFFF;
+    --ok:#2F7A5B;--ok-bg:#E4F1EB;--bad:#B4483F;--bad-bg:#FBEAE8;
+    --t1:#3B6E99;--t2:#3E8B5C;--t3:#9C6B2E;--t4:#B33F3F;--t5:#8A8378;
+    --font: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+    --zh: "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
+      --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+      --t1:#6FA8D8;--t2:#6FC08C;--t3:#D0A059;--t4:#E07A6E;--t5:#A39C8E;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
+    --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+    --t1:#6FA8D8;--t2:#6FC08C;--t3:#D0A059;--t4:#E07A6E;--t5:#A39C8E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--font)}
+  body{padding-bottom:calc(64px + var(--safe-b))}
+  .wrap{max-width:480px;margin:0 auto;padding:16px 16px 24px;min-height:calc(100dvh - 64px - var(--safe-b));display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex:0 0 auto}
+  h1{font-size:18px;font-weight:600;margin:0}
+  .score{color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .themebtn{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:16px;color:var(--ink);flex:0 0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 16px;flex:1 1 auto;display:flex;flex-direction:column}
+  #panel > .done{display:flex;flex-direction:column;flex:1 1 auto}
+  .next:last-child, .primary:last-child, .done .next{margin-top:auto}
+  /* Explicit pin for screens where the trailing action isn't reliably the DOM
+     last-child (e.g. a hidden-until-answered Next button, or a landing screen
+     whose action is a button plus a row of secondary options after it). */
+  .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+  .q{color:var(--mute);font-size:15px;margin:0 0 10px}
+  .big{font-size:52px;line-height:1.3;text-align:center;margin:6px 0 16px;font-weight:500;font-family:var(--zh)}
+  .med{font-size:22px;line-height:1.5;margin:2px 0 14px;font-family:var(--zh)}
+  .en{color:var(--mute);font-size:15px;text-align:center;margin-top:-8px;margin-bottom:14px}
+  .opts{display:grid;gap:8px}
+  .opts button{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
+  .opts button b.num{color:var(--mute);font-weight:500;margin-right:8px;font-size:14px}
+  .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
+  .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+  .reveal{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:none;font-size:15px}
+  .reveal .py{font-size:20px;margin-bottom:4px}
+  .next,.primary{margin-top:14px;width:100%;padding:14px;border:none;border-radius:12px;background:var(--ink);color:var(--bg);font-size:16px;min-height:48px;font-family:var(--font)}
+  .ghost{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--ink);font-size:15px;min-height:44px;font-family:var(--font)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .row button, .chip{padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:14px;color:var(--ink);min-height:44px;font-family:var(--font)}
+  .row button.on, .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .replay{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:17px;color:var(--ink);flex:0 0 auto}
+  .listen-stage{display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0}
+  .contour{display:inline-block}
+  .t1{color:var(--t1)} .t2{color:var(--t2)} .t3{color:var(--t3)} .t4{color:var(--t4)} .t5{color:var(--t5)}
+  input[type=text]{width:100%;padding:14px 14px;border:1px solid var(--line);border-radius:12px;font-size:19px;background:var(--card);color:var(--ink);font-family:var(--font)}
+  input[type=text]:focus{outline:3px solid #7AA7D9;outline-offset:1px}
+  .diff{font-size:15px;margin-top:6px}
+  .diff span{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:6px}
+  .diff .hit{background:var(--ok-bg);color:var(--ok)}
+  .diff .miss{background:var(--bad-bg);color:var(--bad)}
+  .wl{border-bottom:1px solid var(--line);padding:12px 0;display:flex;align-items:flex-start;gap:12px}
+  .wl .zh{font-size:24px;font-family:var(--zh);flex:0 0 auto;width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wl .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .wl .py{font-size:17px;display:block}
+  .wl .en{color:var(--mute);font-size:14px;text-align:left;display:block}
+  table.stats{width:100%;border-collapse:collapse;font-size:15px}
+  table.stats td{padding:8px 0;border-bottom:1px solid var(--line)}
+  table.stats td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:1}
+  .bar i{display:block;height:100%;background:var(--ink)}
+  .path{display:flex;gap:6px;align-items:center;margin-bottom:14px}
+  .path .seg{flex:1;text-align:center;font-size:11px;color:var(--mute)}
+  .stmt{font-size:15px;line-height:1.5;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px}
+  .warn{background:var(--bad-bg);border:1px solid var(--bad);color:var(--bad);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:14px}
+  .done h2{font-size:22px;margin:0 0 10px;font-weight:600}
+  .done ul{padding-left:20px;font-size:15px;margin:8px 0}
+  .card-teach{margin-bottom:14px}
+  .card-teach h3{font-size:17px;margin:0 0 8px;font-weight:600}
+  .card-teach p{font-size:15px;color:var(--mute);margin:0 0 10px}
+  .rowset{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);gap:10px}
+  .rowset .zh{font-family:var(--zh);font-size:18px;flex:0 0 auto;width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rowset .py{flex:1;min-width:0}
+  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:0 1 auto;min-width:0}
+  .taplist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
+  .taplist button{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font-size:15px;min-height:48px}
+  .plist button{display:flex;justify-content:space-between;width:100%;text-align:left;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
+  .plist .tick{color:var(--ok);font-size:14px}
+  textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font)}
+  .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe-b);z-index:5}
+  .tabs button{flex:1;background:transparent;border:none;padding:10px 4px 8px;font-size:12px;color:var(--mute);min-height:56px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--font)}
+  .tabs button .ic{font-size:20px;line-height:1}
+  .tabs button.on{color:var(--ink);font-weight:600}
+  button{cursor:pointer}
+  button:focus-visible, .opts button:focus-visible, [tabindex]:focus-visible{outline:3px solid #7AA7D9;outline-offset:2px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .reveal{transition:opacity 0.15s ease}
+  @media (prefers-reduced-motion: reduce){ .reveal{transition:none} }
+  /* Desktop: keep the same phone-shaped column but stop the tab bar and empty
+     grey margins from spanning the whole viewport — center a wider column and
+     constrain the tab bar to it, so the app reads as a real desktop layout
+     rather than a stretched phone screen. Phone layout above is unchanged. */
+  @media (min-width: 900px){
+    .wrap{max-width:640px}
+    .tabs{left:50%;transform:translateX(-50%);width:640px;max-width:100vw;border-left:1px solid var(--line);border-right:1px solid var(--line);border-radius:16px 16px 0 0}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="htitle">HSK pinyin</h1>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="score" id="score"></span>
+      <button class="themebtn" id="themebtn" aria-label="Toggle theme">◐</button>
+    </div>
+  </header>
+  <div id="panel" class="card"></div>
+  <div id="live" aria-live="polite" class="sr-only"></div>
+</div>
+<nav class="tabs" id="tabs">
+  <button data-t="today" class="on"><span class="ic">◷</span>Today</button>
+  <button data-t="sounds"><span class="ic">〜</span>Sounds</button>
+  <button data-t="words"><span class="ic">字</span>Words</button>
+  <button data-t="test"><span class="ic">✓</span>Test</button>
+  <button data-t="progress"><span class="ic">◔</span>Progress</button>
+</nav>
+
+<!-- dev-only data includes; build.sh inlines these into hsk_pinyin.html -->
+<script src="../data/hsk_vocab.js"></script>
+<script src="../data/pinyin_lessons.js"></script>
+<script src="pinyin_core.js"></script>
+<script>
+"use strict";
+const PC = window.PinyinCore;
+const $ = id => document.getElementById(id);
+const shuffle = a => { for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
+const pick = (a,n) => shuffle(a.slice()).slice(0,n);
+const escapeHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+// ===================== progress =====================
+let prog = { v:1, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null };
+const store = {
+  async load(){
+    try{ if(window.storage){ const r = await window.storage.get("hsk_pinyin"); if(r) prog = Object.assign(prog, JSON.parse(r.value)); return; } }catch(e){}
+    try{ const v = localStorage.getItem("hsk_pinyin"); if(v) prog = Object.assign(prog, JSON.parse(v)); }catch(e){}
+  },
+  async save(){
+    const s = JSON.stringify(prog);
+    try{ if(window.storage){ await window.storage.set("hsk_pinyin", s); return; } }catch(e){}
+    try{ localStorage.setItem("hsk_pinyin", s); }catch(e){}
+  }
+};
+
+function markWord(w, ok){
+  const p = prog.w[w] || {r:0,w:0,s:0};
+  if(ok){ p.r++; p.s++; } else { p.w++; p.s=0; }
+  if(p.prov && (p.s>=3 || !ok)) delete p.prov;
+  prog.w[w] = p; store.save();
+}
+const mastered = w => (prog.w[w]||{}).s >= 3;
+const weakScore = w => { const p = prog.w[w]||{r:0,w:0,s:0}; return p.w*3 - p.s; };
+function weakFirst(list, n){
+  return list.slice().sort((a,b)=>(weakScore(b.w)-weakScore(a.w)) + (Math.random()-0.5)).slice(0,n);
+}
+function provPick(list, n){ return shuffle(list.filter(x=>(prog.w[x.w]||{}).prov && !mastered(x.w))).slice(0,n); }
+
+function levelList(lv){ return VOCAB.filter(v=>v.lv===lv); }
+function nSets(lv){ return Math.ceil(levelList(lv).length/10); }
+function learnedWords(){
+  // Words from completed sets, plus any word explicitly flagged `d` (drilled ahead of
+  // its set via the Words-tab pager). Only the `d` flag counts here — not just "has a
+  // prog.w entry" — so that placement's retake re-baseline (which deletes `d`-flagged
+  // and placement-only-provisional entries) actually shrinks the pool instead of every
+  // leftover prog.w record resurrecting a word outside the freshly placed range.
+  const out = [];
+  [1,2,3,4].forEach(lv=>{ out.push(...levelList(lv).slice(0, (prog.sets[lv]||0)*10)); });
+  const seen = new Set(out.map(w=>w.w));
+  VOCAB.forEach(v=>{ if(!seen.has(v.w) && prog.w[v.w] && prog.w[v.w].d){ out.push(v); seen.add(v.w); } });
+  return out;
+}
+// validateProgShape() and placementStopIndex() live in pinyin_core.js (PC.validateProgShape,
+// PC.placementStopIndex) so the app and the node checks share one definition.
+function nextNewSet(){
+  for(const lv of [1,2,3,4]){ if((prog.sets[lv]||0) < nSets(lv)) return {lv, set: prog.sets[lv]||0}; }
+  return null;
+}
+function lessonsUndone(){ return LESSONS.filter(l=>!prog.lessons[l.id]); }
+
+// ===================== speech =====================
+const SS = window.speechSynthesis || null;
+const hasSpeech = !!(SS && window.SpeechSynthesisUtterance);
+let zhVoice = null, noticeShown = false;
+if(hasSpeech){
+  const pv = () => { const v = SS.getVoices(); zhVoice = v.find(x=>/^zh(-|_)?(CN|Hans)?/i.test(x.lang)) || v.find(x=>/zh/i.test(x.lang)) || null; };
+  pv(); SS.onvoiceschanged = pv;
+}
+function say(t){
+  if(!hasSpeech) return;
+  try{ SS.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang="zh-CN"; if(zhVoice) u.voice=zhVoice; u.rate=0.85; SS.speak(u); }catch(e){}
+}
+function speechNotice(){
+  if(hasSpeech || noticeShown) return "";
+  noticeShown = true;
+  return `<div class="warn">This browser has no Chinese text-to-speech voice, so listening items show the word instead of playing audio.</div>`;
+}
+
+// ===================== tone contour glyph =====================
+const CONTOUR = {
+  1: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 4 L20 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  2: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 11 L20 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  3: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 5 Q9 13 11 13 Q13 13 20 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  4: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 2 L20 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  5: `<svg class="contour" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="2.4" fill="currentColor"/></svg>`
+};
+function contourFor(n){
+  const tt = PC.syll(n).map(c=>+c.slice(-1)||5);
+  const last = tt[tt.length-1] || 1;
+  return `<span class="t${last}">${CONTOUR[last]}</span>`;
+}
+
+// ===================== generic drill runner =====================
+// item: {kind:'mc'|'type', label, html, opts?, a?, reveal, onAnswer?, mount?, check?}
+let D = null;
+function drill(items, onDone, summary){ D = { q: shuffle(items.slice()), right:0, seen:0, miss:[], onDone, summary }; dnext(); }
+function setScore(r,s,left){ $("score").textContent = s ? `${r} / ${s}` + (left!=null ? `  ·  ${left} left` : "") : ""; }
+function announce(html){
+  const el = $("live"); if(!el) return;
+  const tmp = document.createElement("div"); tmp.innerHTML = html || "";
+  el.textContent = tmp.textContent || "";
+}
+function showReveal(html){
+  const rv = $("rv"); if(!rv) return;
+  rv.innerHTML = html;
+  rv.style.display = html ? "block" : "none";
+  if(html){ rv.style.opacity = "0"; requestAnimationFrame(()=>{ rv.style.opacity = "1"; }); }
+  announce(html);
+}
+
+function dnext(){
+  if(!D) return;
+  const P = $("panel");
+  setScore(D.right, D.seen, D.q.length);
+  if(!D.q.length){
+    const { right, seen, miss, onDone, summary } = D;
+    P.innerHTML = `<div class="done"><h2>${right} / ${seen}</h2>${summary ? summary(miss) : ""}<button class="next" id="ok">Continue</button></div>`;
+    // Drill is finished: clear state now, before handing control back, so a stray
+    // keystroke or the previous screen's stale handler can't act on an empty queue.
+    D = null; drillKeyHandler = null;
+    $("ok").onclick = onDone;
+    return;
+  }
+  const it = D.q.shift();
+  if(it.kind === "type"){ renderTypeItem(it); }
+  else { renderMcItem(it); }
+}
+
+function renderMcItem(it){
+  const P = $("panel");
+  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts" id="o"></div><div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  if(it.mount) it.mount();
+  const opts = shuffle(it.opts.slice());
+  const container = $("o");
+  let answered = false;
+  opts.forEach((o,i)=>{
+    const b = document.createElement("button");
+    b.innerHTML = `<b class="num">${i+1}</b>${escapeHtml(o)}`;
+    b.onclick = () => {
+      if(answered) return; answered = true;
+      [...container.children].forEach(x=>{ x.disabled = true; if(x.dataset.v === it.a) x.classList.add("ok"); });
+      const ok = o === it.a;
+      if(!ok) b.classList.add("bad");
+      D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
+      if(it.onAnswer) it.onAnswer(ok);
+      showReveal(it.reveal || "");
+      $("nx").style.display = "block"; setScore(D.right, D.seen, D.q.length);
+    };
+    b.dataset.v = o;
+    container.appendChild(b);
+  });
+  $("nx").onclick = dnext;
+  drillKeyHandler = e => {
+    if(!D) return;
+    const nx = $("nx");
+    if(e.key >= "1" && e.key <= String(opts.length) && !answered){ container.children[+e.key-1].click(); }
+    else if(e.key === "Enter" && nx && nx.style.display !== "none"){ dnext(); }
+    else if(e.key === "Escape"){ quitDrill(); }
+  };
+}
+
+function renderTypeItem(it){
+  const P = $("panel");
+  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}
+    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="type pinyin…">
+    <button class="next" id="submit">Check</button>
+    <div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  if(it.mount) it.mount();
+  const input = $("tin"); input.focus();
+  let answered = false;
+  function submit(){
+    if(answered) return; if(!input.value.trim()) return;
+    answered = true; input.disabled = true; $("submit").style.display = "none";
+    const ok = it.check(input.value);
+    D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
+    if(it.onAnswer) it.onAnswer(ok);
+    showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.reveal||""));
+    $("nx").style.display = "block"; setScore(D.right, D.seen, D.q.length);
+  }
+  $("submit").onclick = submit;
+  $("nx").onclick = dnext;
+  drillKeyHandler = e => {
+    if(!D) return;
+    if(e.key === "Enter"){ answered ? dnext() : submit(); }
+    else if(e.key === "Escape"){
+      // Escape while the input is focused blurs it first; a second Escape then quits.
+      // This stops a learner mid-word-typing from losing the whole drill on one stray key.
+      if(document.activeElement === input){ input.blur(); return; }
+      quitDrill();
+    }
+  };
+}
+
+let drillKeyHandler = null;
+document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
+function quitDrill(){ D = null; drillKeyHandler = null; render(); }
+
+// ===================== vocab drill item builders =====================
+function readItem(entry, pool){
+  const ds = PC.distractors(entry, pool);
+  const opts = [PC.mark(entry.n), ...ds.map(d=>d.py)];
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  return { kind:"mc", label:"Pick the pinyin", html:`<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>`,
+    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+}
+function listenItem(entry, pool){
+  const ds = PC.distractors(entry, pool);
+  const opts = [PC.mark(entry.n), ...ds.map(d=>d.py)];
+  const rv = `<div class="big" style="font-size:36px">${escapeHtml(entry.w)}</div><div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  return { kind:"mc", label:"Listen, then pick the pinyin", html: speechNotice() + (hasSpeech
+      ? `<div class="listen-stage"><button class="replay" id="rp" aria-label="Replay">▶</button></div>`
+      : `<div class="big">${escapeHtml(entry.w)}</div>`),
+    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
+    mount: () => { if(hasSpeech){ say(entry.w); $("rp").onclick = ()=>say(entry.w); } } };
+}
+function toneItem(entry){
+  const chunks = PC.syll(entry.n);
+  const answer = PC.tones(entry.n);
+  const toneless = chunks.map(c=>c.slice(0,-1)).join(" ");
+  const opts = new Set([answer]);
+  let guard = 0;
+  while(opts.size < 4 && guard++ < 40){
+    const cand = chunks.map(c => Math.random()<0.6 ? (c.slice(0,-1)+ (1+Math.floor(Math.random()*5))) : c);
+    opts.add(cand.map(c=>c.slice(-1)).join("-"));
+  }
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  return { kind:"mc", label:"Which tone pattern?", html:`<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(toneless)}</div>`,
+    opts:[...opts], a: answer, reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+}
+function typeItem(entry){
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div>`;
+  return { kind:"type", label:"Type the pinyin (numbers or tone marks)",
+    html: `<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>` + (hasSpeech ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">▶</button></div>` : ""),
+    mount: () => { if(hasSpeech) $("rp2").onclick = ()=>say(entry.w); },
+    check: val => PC.acceptTypeAnswer(val, entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+}
+function missSummary(miss){
+  const u = [...new Map(miss.map(m=>[m.reveal, m])).values()];
+  return u.length ? `<p class="q">Missed:</p>${u.map(m=>`<div class="stmt">${m.reveal}</div>`).join("")}` : "<p class='q'>Clean.</p>";
+}
+
+// ===================== lesson item wrapper =====================
+function lessonItem(it){
+  return { kind:"mc", label: it.q,
+    html: it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">▶</button></div>` : "",
+    mount: () => { if(it.say && hasSpeech){ say(it.say); $("rpl").onclick = ()=>say(it.say); } },
+    opts: it.opts, a: it.a, reveal: `<div>${escapeHtml(it.rv||"")}</div>` };
+}
+
+// ===================== tabs =====================
+let tab = "today";
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); tab = b.dataset.t; D = null; drillKeyHandler = null;
+  todayStepState = null; soundsSel = null; wordsSet = null; testSel = null;
+  render();
+});
+function render(){
+  D = null; drillKeyHandler = null;
+  $("htitle").textContent = { today:"Today", sounds:"Sounds", words:"Words", test:"Test", progress:"Progress" }[tab];
+  setScore(0,0);
+  ({ today: todayRender, sounds: soundsRender, words: wordsRender, test: testRender, progress: progressRender })[tab]();
+}
+
+// ===================== Today =====================
+function pathStrip(){
+  const stages = [
+    { label:"Sounds", frac: LESSONS.length ? Object.keys(prog.lessons).length/LESSONS.length : 0 },
+    ...[1,2,3,4].map(lv=>({ label:"HSK"+lv, frac: (prog.sets[lv]||0)/nSets(lv) }))
+  ];
+  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.label}</div>`).join("")}</div>`;
+}
+let todayStepState = null;
+function todayRender(){
+  setScore(0,0);
+  const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet(); const lu = lessonsUndone();
+  const n = (prog.sessions||0) + 1;
+  const steps = [
+    ["Review", lw.length ? "15 items, weakest first" : "nothing learned yet — skipped"],
+    ["Learn", lu.length ? `Sounds: ${lu[0].title}` : (nn ? `HSK ${nn.lv}, set ${nn.set+1}` : "everything covered")],
+    ["Listen", lw.length ? "10 items" : "skipped until something is learned"],
+    ["Type", lw.length ? "8 items" : "skipped until something is learned"]
+  ];
+  P.innerHTML = `${pathStrip()}
+    ${(!lw.length && !Object.keys(prog.lessons).length) ? `<div class="stmt">New here? Take the Placement test in the Test tab so today starts where your knowledge ends.</div>` : ""}
+    <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
+    <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
+    <div class="actions"><button class="next" id="go">Start today</button></div>`;
+  $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
+}
+function todayStep(){
+  const lw = learnedWords(); const nn = nextNewSet(); const lu = lessonsUndone();
+  const s = todayStepState.step++;
+  if(s === 0){
+    if(lw.length >= 5){
+      const pv = provPick(lw, 5);
+      const rest = weakFirst(lw.filter(x=>!pv.includes(x)), 15-pv.length);
+      const pool = [...rest, ...pv];
+      const items = shuffle(pool.map(w => { const r = Math.random(); return r<0.4?readItem(w,lw):r<0.7?toneItem(w):listenItem(w,lw); }));
+      drill(items, todayStep, missSummary); return;
+    }
+    return todayStep();
+  }
+  if(s === 1){
+    if(lu.length){
+      const lesson = lu[0];
+      lessonTeach(lesson, () => { prog.lessons[lesson.id] = 1; store.save(); todayStep(); });
+      return;
+    }
+    if(nn){
+      const list = levelList(nn.lv).slice(nn.set*10, nn.set*10+10);
+      vocabTeach(list, nn.lv, () => {
+        const items = [];
+        list.forEach(w => items.push(readItem(w, levelList(nn.lv)), toneItem(w)));
+        drill(shuffle(items), () => { prog.sets[nn.lv] = nn.set+1; store.save(); todayStep(); }, missSummary);
+      });
+      return;
+    }
+    return todayStep();
+  }
+  if(s === 2){
+    if(lw.length >= 4){ drill(weakFirst(lw,10).map(w=>listenItem(w,lw)), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 3){
+    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>typeItem(w)), todayFinish, missSummary); return; }
+    return todayFinish();
+  }
+  todayFinish();
+}
+function todayFinish(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  prog.sessions = (prog.sessions||0) + 1; store.save();
+  const P = $("panel");
+  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p><button class="next" id="again">Back to Today</button></div>`;
+  $("again").onclick = todayRender;
+}
+function vocabTeach(list, lv, onDrill){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<p class="q">HSK ${lv}, new set. Tap a word to hear it.</p>
+    <div id="tl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
+  const tl = $("tl");
+  list.forEach(w => {
+    const row = document.createElement("div"); row.className = "rowset";
+    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span>`;
+    row.onclick = () => say(w.w);
+    row.style.cursor = "pointer";
+    tl.appendChild(row);
+  });
+  $("dr").onclick = onDrill;
+}
+// onBack is optional: when given, lessonTeach renders its own back button (as part
+// of the same innerHTML write) instead of the caller pre-rendering one, since any
+// renderer that overwrites #panel after another element wired its handler destroys
+// that element and $(id).onclick throws on the now-null lookup.
+function lessonTeach(lesson, onDone, onBack){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${escapeHtml(lesson.blurb)}</p>
+    <div id="cards"></div><div class="actions"><button class="next" id="dr">Drill</button></div>`;
+  if(onBack) $("back").onclick = onBack;
+  const cw = $("cards");
+  lesson.cards.forEach(c => {
+    const el = document.createElement("div"); el.className = "card-teach";
+    el.innerHTML = `<h3>${escapeHtml(c.h)}</h3><p>${c.body}</p>
+      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset"><span class="py">${escapeHtml(r[0])}</span><span class="zh">${escapeHtml(r[1])}</span><span class="en">${escapeHtml(r[2])}</span></div>`).join("")}</div>` : ""}
+      ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${escapeHtml(s)}</button>`).join("")}</div>` : ""}`;
+    if(c.say) el.querySelectorAll("[data-s]").forEach((b,i)=>b.onclick=()=>say(c.say[i]));
+    cw.appendChild(el);
+  });
+  $("dr").onclick = () => drill(shuffle(lesson.items.map(lessonItem)), onDone, missSummary);
+}
+
+// ===================== Sounds =====================
+let soundsSel = null;
+function soundsRender(){
+  setScore(0,0);
+  const P = $("panel");
+  if(soundsSel === "chart"){ chartRender(); return; }
+  if(soundsSel != null){
+    const lesson = LESSONS[soundsSel];
+    lessonTeach(lesson,
+      () => { prog.lessons[lesson.id] = 1; store.save(); soundsSel = null; soundsRender(); },
+      () => { soundsSel = null; soundsRender(); });
+    return;
+  }
+  const done = Object.keys(prog.lessons).length;
+  P.innerHTML = `<p class="q">${LESSONS.length} lessons on sounds and tones. ${done} done.</p>
+    <div class="plist">${LESSONS.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>
+    <button class="ghost" id="chart" style="margin-top:10px">Pinyin reference chart</button>`;
+  P.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ soundsSel = +b.dataset.i; soundsRender(); });
+  $("chart").onclick = () => { soundsSel = "chart"; soundsRender(); };
+}
+const REF_INITIALS = ["b","p","m","f","d","t","n","l","g","k","h","j","q","x","zh","ch","sh","r","z","c","s"];
+const REF_FINALS = ["a","o","e","i","u","ü","ai","ei","ao","ou","an","en","ang","eng","ong","ia","ie","iao","iu","ian","in","iang","ing","iong","ua","uo","uai","ui","uan","un","uang","ueng","üe","üan","ün","er"];
+function chartRender(){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<div class="row"><button id="back">‹ lessons</button></div>
+    <p class="q">Initials — tap to hear.</p>
+    <div class="taplist" id="ini"></div>
+    <p class="q" style="margin-top:14px">Finals — tap to hear.</p>
+    <div class="taplist" id="fin"></div>`;
+  $("back").onclick = () => { soundsSel = null; soundsRender(); };
+  $("ini").innerHTML = REF_INITIALS.map(x=>`<button data-s="${x}">${x}</button>`).join("");
+  $("fin").innerHTML = REF_FINALS.map(x=>`<button data-s="${x}">${x}</button>`).join("");
+  P.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>say(b.dataset.s));
+}
+
+// ===================== Words =====================
+let wordsLv = 1, wordsSet = null;
+function wordsRender(){
+  setScore(0,0);
+  const P = $("panel");
+  const list = levelList(wordsLv); const total = nSets(wordsLv); const done = prog.sets[wordsLv]||0;
+  if(wordsSet == null) wordsSet = Math.min(done, total-1);
+  const set = list.slice(wordsSet*10, wordsSet*10+10);
+  P.innerHTML = `<div class="row">${[1,2,3,4].map(lv=>`<button data-l="${lv}" class="${lv===wordsLv?'on':''}">HSK ${lv}</button>`).join("")}</div>
+    <div class="row"><button id="pv">‹</button><button class="on">Set ${wordsSet+1} / ${total}${wordsSet<done?' ✓':''}</button><button id="nx">›</button><button id="jump">next new</button><button id="rev">review</button></div>
+    <div id="wl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
+  P.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ wordsLv=+b.dataset.l; wordsSet=null; wordsRender(); });
+  $("pv").onclick = () => { wordsSet = Math.max(0, wordsSet-1); wordsRender(); };
+  $("nx").onclick = () => { wordsSet = Math.min(total-1, wordsSet+1); wordsRender(); };
+  $("jump").onclick = () => { wordsSet = Math.min(done, total-1); wordsRender(); };
+  const wl = $("wl");
+  set.forEach(w => {
+    const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
+    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
+    row.onclick = () => say(w.w);
+    wl.appendChild(row);
+  });
+  $("dr").onclick = () => {
+    const items = []; set.forEach(w => items.push(readItem(w, list), toneItem(w)));
+    // Only advance the level's set pointer when this was exactly the next unlearned
+    // set — drilling a set further ahead must not silently mark every skipped set
+    // as learned. Otherwise stamp these specific words with the `d` (drilled-ahead)
+    // flag so learnedWords() counts just them, not the whole set range.
+    drill(shuffle(items), () => {
+      if(wordsSet === (prog.sets[wordsLv]||0)){ prog.sets[wordsLv] = wordsSet+1; }
+      else { set.forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:0,w:0,s:0}; prog.w[w.w].d = 1; }); }
+      store.save(); wordsRender();
+    }, missSummary);
+  };
+  $("rev").onclick = () => {
+    const lw = learnedWords(); if(lw.length < 5){ alert("Finish a set first."); return; }
+    drill(weakFirst(lw, 15).map(w=>{ const r = Math.random(); return r<0.4?readItem(w,lw):r<0.7?toneItem(w):listenItem(w,lw); }), wordsRender, missSummary);
+  };
+}
+
+// ===================== Test (placement + free tests) =====================
+let testSel = null, PL = null;
+function testRender(){
+  setScore(0,0);
+  const P = $("panel");
+  if(testSel === "placement"){ placeRender(); return; }
+  P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
+    <div class="actions">
+      <button class="next" id="pl">Take Placement</button>
+      <div class="row" style="margin-top:8px;margin-bottom:0">
+        <button class="ghost" id="tListen" style="flex:1">Listen 20</button>
+        <button class="ghost" id="tType" style="flex:1">Type 20</button>
+        <button class="ghost" id="tTone" style="flex:1">Tones 20</button>
+      </div>
+    </div>`;
+  $("pl").onclick = () => { testSel = "placement"; testRender(); };
+  const need = () => { const lw = learnedWords(); if(lw.length < 8){ alert("Learn a few words first (Today or Words tab)."); return null; } return lw; };
+  $("tListen").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>listenItem(w,lw)), testRender, missSummary); };
+  $("tType").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>typeItem(w)), testRender, missSummary); };
+  $("tTone").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>toneItem(w)), testRender, missSummary); };
+}
+// strata() lives in pinyin_core.js (PC.strata) so the app and the node checks share one definition.
+function placeRender(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  const P = $("panel"); const lw = learnedWords();
+  P.innerHTML = `<div class="row"><button id="back">‹ test</button></div>
+    <p class="q">48 items: 8 foundation sound questions, then 40 words across HSK 1–4, meaning shown, pick the pinyin. No feedback until the end. Places you inside a level; skipped words stay in review as provisional.</p>
+    ${lw.length ? `<p class="q">Current: ${lw.length} words learned. Retaking resets set position and clears any provisional or drilled-ahead words that haven't stuck yet.</p>` : ""}
+    <div class="actions"><button class="next" id="go">Start placement</button></div>`;
+  $("back").onclick = () => { testSel = null; testRender(); };
+  $("go").onclick = () => {
+    const foundationPool = shuffle(LESSONS.flatMap(l=>l.items)).slice(0,8);
+    const st = PC.strata(VOCAB);
+    const bucketItems = [];
+    st.forEach((b,bi) => { const k = bi%2===0 ? 2 : 3; pick(b.words, k).forEach(w=>bucketItems.push({b:bi, w})); });
+    PL = { foundation:{items:foundationPool, i:0, right:0}, vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})), phase:"foundation" };
+    placeFoundationNext();
+  };
+}
+function placeFoundationNext(){
+  const P = $("panel"); const F = PL.foundation;
+  if(F.i >= F.items.length){ PL.phase="vocab"; placeVocabNext(); return; }
+  const it = F.items[F.i++]; setScore(F.i, F.items.length);
+  P.innerHTML = `<p class="q">Foundations ${F.i} / ${F.items.length}</p><p class="med">${escapeHtml(it.q)}</p>
+    ${it.say ? `<div class="listen-stage"><button class="replay" id="rp">▶</button></div>` : ""}
+    <div class="opts" id="o"></div>`;
+  if(it.say && hasSpeech){ say(it.say); $("rp").onclick = ()=>say(it.say); }
+  shuffle(it.opts.slice()).forEach(o => {
+    const b = document.createElement("button"); b.textContent = o;
+    b.onclick = () => { if(o===it.a) F.right++; placeFoundationNext(); };
+    $("o").appendChild(b);
+  });
+}
+function placeVocabNext(){
+  const P = $("panel"); const V = PL.vocab;
+  if(V.i >= V.items.length){ placeResult(); return; }
+  const it = V.items[V.i++]; const w = it.w; setScore(V.i, V.items.length);
+  const ds = PC.distractors(w, VOCAB);
+  P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p><div class="big">${escapeHtml(w.w)}</div><div class="en">${escapeHtml(w.en)}</div><div class="opts" id="o"></div>`;
+  shuffle([PC.mark(w.n), ...ds.map(d=>d.py)]).forEach(o => {
+    const b = document.createElement("button"); b.textContent = o;
+    b.onclick = () => { PL.res[it.b].n++; if(o===PC.mark(w.n)) PL.res[it.b].r++; placeVocabNext(); };
+    $("o").appendChild(b);
+  });
+}
+function placeResult(){
+  setScore(0,0);
+  const st = PL.st; const rows = [];
+  // Pass rule lives in pinyin_core.js (PC.placementStopIndex): a rolling window of up
+  // to 3 buckets must hit >=75% accuracy AND the current bucket needs at least 1 right,
+  // since a raw per-bucket cutoff at 2-3 items makes a single lucky/unlucky guess decide
+  // the whole bucket.
+  const stop = PC.placementStopIndex(PL.res);
+  st.forEach((b,i)=>{ const r = PL.res[i]; rows.push([b, r, r.n ? r.r/r.n : 1]); });
+  const passed = stop==null ? st.length : stop;
+  // Retaking placement re-baselines the review pool: drop anything that was only ever
+  // a placement guess that never actually stuck (provisional with no real streak yet)
+  // or was drilled ahead of its set from the Words tab (the `d` flag) — otherwise those
+  // leftover prog.w entries would resurrect words outside the freshly placed range via
+  // learnedWords()'s union, defeating the point of retaking.
+  Object.keys(prog.w).forEach(k => {
+    const p = prog.w[k];
+    if((p.prov && p.s <= 1) || p.d) delete prog.w[k];
+  });
+  prog.sets = {1:0,2:0,3:0,4:0};
+  for(let i=0;i<passed;i++){ const b = st[i]; prog.sets[b.lv] = Math.max(prog.sets[b.lv], b.s1); }
+  learnedWords().forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:1,w:0,s:1,prov:1}; });
+  if(PL.foundation.right >= 7) LESSONS.forEach(l=>prog.lessons[l.id]=1);
+  store.save();
+  const pos = stop==null ? "everything covered — go straight to Words and pick a set" : `HSK ${st[passed].lv}, set ${st[passed].s0+1}`;
+  const P = $("panel");
+  P.innerHTML = `<div class="done"><h2>Start at ${pos}</h2>
+    <p class="q">Foundations: ${PL.foundation.right} / 8 ${PL.foundation.right>=7?"— all Sounds lessons marked done":""}</p>
+    <table class="stats">${rows.map(([b,r,acc],i)=>`<tr><td>HSK ${b.lv} sets ${b.s0+1}–${b.s1}</td><td style="color:${i<passed?'var(--ok)':'var(--bad)'}">${r.r}/${r.n}</td></tr>`).join("")}</table>
+    <p class="q">${learnedWords().length} words freshly marked provisional and kept in review.</p>
+    <button class="next" id="ok">Go to Today</button></div>`;
+  $("ok").onclick = () => { document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on", x.dataset.t==="today")); tab="today"; testSel=null; render(); };
+}
+
+// ===================== Progress =====================
+function progressRender(){
+  setScore(0,0);
+  const P = $("panel");
+  const lwAll = learnedWords();
+  const rows = [1,2,3,4].map(lv => {
+    const list = levelList(lv); const learnedList = lwAll.filter(w=>w.lv===lv);
+    const masteredN = learnedList.filter(w=>mastered(w.w)).length;
+    return `<tr><td>HSK ${lv}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>`;
+  }).join("");
+  const weak = weakFirst(lwAll.filter(w=>weakScore(w.w)>0), 10);
+  P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No Chinese text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
+    <table class="stats">${rows}
+      <tr><td>Sounds</td><td>${Object.keys(prog.lessons).length} / ${LESSONS.length} lessons done</td></tr>
+      <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
+    <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
+    ${weak.map(w=>`<div class="rowset"><span class="zh">${escapeHtml(w.w)}</span><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></div>`).join("")}
+    <div class="row" style="margin-top:16px">
+      <button class="ghost" id="exp" style="flex:1">Export progress</button>
+      <button class="ghost" id="imp" style="flex:1">Import progress</button>
+    </div>
+    <div id="impbox" style="display:none;margin-top:10px">
+      <textarea id="imptxt" placeholder="Paste exported JSON here"></textarea>
+      <input type="file" id="impfile" accept="application/json" style="margin-top:8px">
+      <button class="next" id="doimport">Load</button>
+    </div>
+    <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
+  $("exp").onclick = () => {
+    const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "hsk_pinyin_progress.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  $("imp").onclick = () => { $("impbox").style.display = $("impbox").style.display==="none" ? "block" : "none"; };
+  $("impfile").onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { $("imptxt").value = r.result; }; r.readAsText(f); };
+  $("doimport").onclick = () => {
+    // Validation runs inside the try so a throw from a malformed-but-JSON-parseable
+    // shape becomes a rejection message too, instead of an uncaught error and a
+    // silent no-op.
+    try{
+      const data = JSON.parse($("imptxt").value);
+      const v = PC.validateProgShape(data);
+      if(!v.ok){ alert("That doesn't look like valid exported progress: " + v.reason); return; }
+      const prevTheme = prog.theme;
+      prog = Object.assign({v:1,w:{},sets:{1:0,2:0,3:0,4:0},lessons:{},sessions:0}, v.data, {v:1});
+      if(prog.theme === undefined) prog.theme = prevTheme; // imported progress with no theme keeps the current one
+      store.save(); applyTheme(); progressRender();
+    }catch(e){
+      alert("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
+    }
+  };
+  $("reset").onclick = () => {
+    if(!confirm("Reset all progress? This can't be undone.")) return;
+    prog = { v:1, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme };
+    store.save(); progressRender();
+  };
+}
+
+// ===================== theme =====================
+function applyTheme(){ document.documentElement.setAttribute("data-theme", prog.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")); }
+$("themebtn").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  prog.theme = cur === "dark" ? "light" : "dark";
+  applyTheme(); store.save();
+};
+
+// ===================== boot =====================
+(async function(){
+  await store.load();
+  applyTheme();
+  render();
+})();
+</script>
+</body>
+</html>

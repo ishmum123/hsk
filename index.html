@@ -1,0 +1,1586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HSK pinyin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EEF0ED;--ink:#1B2321;--mute:#5C6B67;--line:#D6DAD7;--card:#FFFFFF;
+    --ok:#2F7A5B;--ok-bg:#E4F1EB;--bad:#B4483F;--bad-bg:#FBEAE8;
+    --t1:#3B6E99;--t2:#3E8B5C;--t3:#9C6B2E;--t4:#B33F3F;--t5:#8A8378;
+    --font: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+    --zh: "PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
+      --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+      --t1:#6FA8D8;--t2:#6FC08C;--t3:#D0A059;--t4:#E07A6E;--t5:#A39C8E;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#161A18;--ink:#E7EAE7;--mute:#98A29C;--line:#2B322E;--card:#1E2320;
+    --ok:#4FAE86;--ok-bg:#193028;--bad:#E08579;--bad-bg:#361F1D;
+    --t1:#6FA8D8;--t2:#6FC08C;--t3:#D0A059;--t4:#E07A6E;--t5:#A39C8E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--font)}
+  body{padding-bottom:calc(64px + var(--safe-b))}
+  .wrap{max-width:480px;margin:0 auto;padding:16px 16px 24px;min-height:calc(100dvh - 64px - var(--safe-b));display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex:0 0 auto}
+  h1{font-size:18px;font-weight:600;margin:0}
+  .score{color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .themebtn{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:16px;color:var(--ink);flex:0 0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 16px;flex:1 1 auto;display:flex;flex-direction:column}
+  #panel > .done{display:flex;flex-direction:column;flex:1 1 auto}
+  .next:last-child, .primary:last-child, .done .next{margin-top:auto}
+  /* Explicit pin for screens where the trailing action isn't reliably the DOM
+     last-child (e.g. a hidden-until-answered Next button, or a landing screen
+     whose action is a button plus a row of secondary options after it). */
+  .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+  .q{color:var(--mute);font-size:15px;margin:0 0 10px}
+  .big{font-size:52px;line-height:1.3;text-align:center;margin:6px 0 16px;font-weight:500;font-family:var(--zh)}
+  .med{font-size:22px;line-height:1.5;margin:2px 0 14px;font-family:var(--zh)}
+  .en{color:var(--mute);font-size:15px;text-align:center;margin-top:-8px;margin-bottom:14px}
+  .opts{display:grid;gap:8px}
+  .opts button{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
+  .opts button b.num{color:var(--mute);font-weight:500;margin-right:8px;font-size:14px}
+  .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
+  .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+  .reveal{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:none;font-size:15px}
+  .reveal .py{font-size:20px;margin-bottom:4px}
+  .next,.primary{margin-top:14px;width:100%;padding:14px;border:none;border-radius:12px;background:var(--ink);color:var(--bg);font-size:16px;min-height:48px;font-family:var(--font)}
+  .ghost{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--ink);font-size:15px;min-height:44px;font-family:var(--font)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .row button, .chip{padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:14px;color:var(--ink);min-height:44px;font-family:var(--font)}
+  .row button.on, .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .replay{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:17px;color:var(--ink);flex:0 0 auto}
+  .listen-stage{display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0}
+  .contour{display:inline-block}
+  .t1{color:var(--t1)} .t2{color:var(--t2)} .t3{color:var(--t3)} .t4{color:var(--t4)} .t5{color:var(--t5)}
+  input[type=text]{width:100%;padding:14px 14px;border:1px solid var(--line);border-radius:12px;font-size:19px;background:var(--card);color:var(--ink);font-family:var(--font)}
+  input[type=text]:focus{outline:3px solid #7AA7D9;outline-offset:1px}
+  .diff{font-size:15px;margin-top:6px}
+  .diff span{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:6px}
+  .diff .hit{background:var(--ok-bg);color:var(--ok)}
+  .diff .miss{background:var(--bad-bg);color:var(--bad)}
+  .wl{border-bottom:1px solid var(--line);padding:12px 0;display:flex;align-items:flex-start;gap:12px}
+  .wl .zh{font-size:24px;font-family:var(--zh);flex:0 0 auto;width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wl .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .wl .py{font-size:17px;display:block}
+  .wl .en{color:var(--mute);font-size:14px;text-align:left;display:block}
+  table.stats{width:100%;border-collapse:collapse;font-size:15px}
+  table.stats td{padding:8px 0;border-bottom:1px solid var(--line)}
+  table.stats td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:1}
+  .bar i{display:block;height:100%;background:var(--ink)}
+  .path{display:flex;gap:6px;align-items:center;margin-bottom:14px}
+  .path .seg{flex:1;text-align:center;font-size:11px;color:var(--mute)}
+  .stmt{font-size:15px;line-height:1.5;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px}
+  .warn{background:var(--bad-bg);border:1px solid var(--bad);color:var(--bad);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:14px}
+  .done h2{font-size:22px;margin:0 0 10px;font-weight:600}
+  .done ul{padding-left:20px;font-size:15px;margin:8px 0}
+  .card-teach{margin-bottom:14px}
+  .card-teach h3{font-size:17px;margin:0 0 8px;font-weight:600}
+  .card-teach p{font-size:15px;color:var(--mute);margin:0 0 10px}
+  .rowset{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);gap:10px}
+  .rowset .zh{font-family:var(--zh);font-size:18px;flex:0 0 auto;width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rowset .py{flex:1;min-width:0}
+  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:0 1 auto;min-width:0}
+  .taplist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
+  .taplist button{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font-size:15px;min-height:48px}
+  .plist button{display:flex;justify-content:space-between;width:100%;text-align:left;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
+  .plist .tick{color:var(--ok);font-size:14px}
+  textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font)}
+  .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe-b);z-index:5}
+  .tabs button{flex:1;background:transparent;border:none;padding:10px 4px 8px;font-size:12px;color:var(--mute);min-height:56px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--font)}
+  .tabs button .ic{font-size:20px;line-height:1}
+  .tabs button.on{color:var(--ink);font-weight:600}
+  button{cursor:pointer}
+  button:focus-visible, .opts button:focus-visible, [tabindex]:focus-visible{outline:3px solid #7AA7D9;outline-offset:2px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .reveal{transition:opacity 0.15s ease}
+  @media (prefers-reduced-motion: reduce){ .reveal{transition:none} }
+  /* Desktop: keep the same phone-shaped column but stop the tab bar and empty
+     grey margins from spanning the whole viewport — center a wider column and
+     constrain the tab bar to it, so the app reads as a real desktop layout
+     rather than a stretched phone screen. Phone layout above is unchanged. */
+  @media (min-width: 900px){
+    .wrap{max-width:640px}
+    .tabs{left:50%;transform:translateX(-50%);width:640px;max-width:100vw;border-left:1px solid var(--line);border-right:1px solid var(--line);border-radius:16px 16px 0 0}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="htitle">HSK pinyin</h1>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="score" id="score"></span>
+      <button class="themebtn" id="themebtn" aria-label="Toggle theme">◐</button>
+    </div>
+  </header>
+  <div id="panel" class="card"></div>
+  <div id="live" aria-live="polite" class="sr-only"></div>
+</div>
+<nav class="tabs" id="tabs">
+  <button data-t="today" class="on"><span class="ic">◷</span>Today</button>
+  <button data-t="sounds"><span class="ic">〜</span>Sounds</button>
+  <button data-t="words"><span class="ic">字</span>Words</button>
+  <button data-t="test"><span class="ic">✓</span>Test</button>
+  <button data-t="progress"><span class="ic">◔</span>Progress</button>
+</nav>
+
+<!-- dev-only data includes; build.sh inlines these into hsk_pinyin.html -->
+<script>
+const VOCAB=[{"w": "一", "py": "yī", "n": "yi1", "en": "one; single", "lv": 1}, {"w": "七", "py": "qī", "n": "qi1", "en": "seven; 7", "lv": 1}, {"w": "三", "py": "sān", "n": "san1", "en": "three; 3", "lv": 1}, {"w": "上", "py": "shàng", "n": "shang4", "en": "first (of multiple parts); to climb; to get onto; to go up", "lv": 1}, {"w": "上午", "py": "shàngwǔ", "n": "shang4wu3", "en": "morning", "lv": 1}, {"w": "下", "py": "xià", "n": "xia4", "en": "down; downwards", "lv": 1}, {"w": "下午", "py": "xiàwǔ", "n": "xia4wu3", "en": "afternoon; p.m.", "lv": 1}, {"w": "下雨", "py": "xiàyǔ", "n": "xia4yu3", "en": "to rain", "lv": 1}, {"w": "不", "py": "bù", "n": "bu4", "en": "no; not so; (bound form) not; un-", "lv": 1}, {"w": "不客气", "py": "bùkèqi", "n": "bu4ke4qi5", "en": "you're welcome; don't mention it", "lv": 1}, {"w": "东西", "py": "dōngxi", "n": "dong1xi5", "en": "thing; stuff", "lv": 1}, {"w": "个", "py": "gè", "n": "ge4", "en": "classifier used before a noun that has no specific…", "lv": 1}, {"w": "中午", "py": "zhōngwǔ", "n": "zhong1wu3", "en": "noon; midday", "lv": 1}, {"w": "中国", "py": "Zhōngguó", "n": "Zhong1guo2", "en": "China", "lv": 1}, {"w": "九", "py": "jiǔ", "n": "jiu3", "en": "nine; 9", "lv": 1}, {"w": "书", "py": "shū", "n": "shu1", "en": "book; letter", "lv": 1}, {"w": "买", "py": "mǎi", "n": "mai3", "en": "to buy; to purchase", "lv": 1}, {"w": "了", "py": "le", "n": "le5", "en": "(completed action marker)", "lv": 1}, {"w": "二", "py": "èr", "n": "er4", "en": "two; 2", "lv": 1}, {"w": "五", "py": "wǔ", "n": "wu3", "en": "five; 5", "lv": 1}, {"w": "些", "py": "xiē", "n": "xie1", "en": "classifier indicating a small amount or small number…", "lv": 1}, {"w": "人", "py": "rén", "n": "ren2", "en": "person; people", "lv": 1}, {"w": "什么", "py": "shénme", "n": "shen2me5", "en": "what?; something", "lv": 1}, {"w": "今天", "py": "jīntiān", "n": "jin1tian1", "en": "today; at the present", "lv": 1}, {"w": "他", "py": "tā", "n": "ta1", "en": "he; him…", "lv": 1}, {"w": "会", "py": "huì", "n": "hui4", "en": "can; to have the skill; to know how to", "lv": 1}, {"w": "住", "py": "zhù", "n": "zhu4", "en": "to live; to dwell", "lv": 1}, {"w": "你", "py": "nǐ", "n": "ni3", "en": "you (informal, as opposed to courteous 您)", "lv": 1}, {"w": "做", "py": "zuò", "n": "zuo4", "en": "to make; to produce; to write; to compose", "lv": 1}, {"w": "儿子", "py": "érzi", "n": "er2zi5", "en": "son", "lv": 1}, {"w": "先生", "py": "xiānsheng", "n": "xian1sheng5", "en": "teacher; gentleman; sir; mister (Mr.)", "lv": 1}, {"w": "八", "py": "bā", "n": "ba1", "en": "eight; 8", "lv": 1}, {"w": "六", "py": "liù", "n": "liu4", "en": "six; 6", "lv": 1}, {"w": "再见", "py": "zàijiàn", "n": "zai4jian4", "en": "goodbye", "lv": 1}, {"w": "写", "py": "xiě", "n": "xie3", "en": "to write", "lv": 1}, {"w": "冷", "py": "lěng", "n": "leng3", "en": "cold", "lv": 1}, {"w": "几", "py": "jǐ", "n": "ji3", "en": "how much; how many", "lv": 1}, {"w": "出租车", "py": "chūzūchē", "n": "chu1zu1che1", "en": "taxi; (Tw) rental car", "lv": 1}, {"w": "分钟", "py": "fēnzhōng", "n": "fen1zhong1", "en": "minute", "lv": 1}, {"w": "前面", "py": "qiánmiàn", "n": "qian2mian4", "en": "ahead; in front", "lv": 1}, {"w": "北京", "py": "Běijīng", "n": "Bei3jing1", "en": "Beijing, capital of the People's Republic of China", "lv": 1}, {"w": "医生", "py": "yīshēng", "n": "yi1sheng1", "en": "doctor", "lv": 1}, {"w": "医院", "py": "yīyuàn", "n": "yi1yuan4", "en": "hospital", "lv": 1}, {"w": "十", "py": "shí", "n": "shi2", "en": "ten; 10", "lv": 1}, {"w": "去", "py": "qù", "n": "qu4", "en": "to go; to go to (a place)", "lv": 1}, {"w": "叫", "py": "jiào", "n": "jiao4", "en": "to shout; to call", "lv": 1}, {"w": "吃", "py": "chī", "n": "chi1", "en": "to eat; to consume; to eat at (a cafeteria etc)", "lv": 1}, {"w": "同学", "py": "tóngxué", "n": "tong2xue2", "en": "to study at the same school; fellow student", "lv": 1}, {"w": "名字", "py": "míngzi", "n": "ming2zi5", "en": "name (of a person or thing)", "lv": 1}, {"w": "后面", "py": "hòumian", "n": "hou4mian5", "en": "the back; the rear; the last bit", "lv": 1}, {"w": "吗", "py": "ma", "n": "ma5", "en": "(question particle for \"yes-no\" questions)", "lv": 1}, {"w": "听", "py": "tīng", "n": "ting1", "en": "to listen to; to hear; to heed; to obey", "lv": 1}, {"w": "呢", "py": "ne", "n": "ne5", "en": "particle indicating that a previously asked question is…", "lv": 1}, {"w": "和", "py": "hé", "n": "he2", "en": "(joining two nouns) and; together with; with…", "lv": 1}, {"w": "哪", "py": "nǎ", "n": "na3", "en": "how; which", "lv": 1}, {"w": "商店", "py": "shāngdiàn", "n": "shang1dian4", "en": "store; shop", "lv": 1}, {"w": "喂", "py": "wéi", "n": "wei2", "en": "hello (when answering the phone)", "lv": 1}, {"w": "喜欢", "py": "xǐhuan", "n": "xi3huan5", "en": "to like; to be fond of", "lv": 1}, {"w": "喝", "py": "hē", "n": "he1", "en": "to drink", "lv": 1}, {"w": "四", "py": "sì", "n": "si4", "en": "four; 4", "lv": 1}, {"w": "回", "py": "huí", "n": "hui2", "en": "to circle; to go back", "lv": 1}, {"w": "在", "py": "zài", "n": "zai4", "en": "to exist; to be alive; (of sb or sth) to be (located) at", "lv": 1}, {"w": "坐", "py": "zuò", "n": "zuo4", "en": "to sit; to take a seat", "lv": 1}, {"w": "块", "py": "kuài", "n": "kuai4", "en": "lump; chunk; piece", "lv": 1}, {"w": "多", "py": "duō", "n": "duo1", "en": "many; much; too many; in excess", "lv": 1}, {"w": "多少", "py": "duōshao", "n": "duo1shao5", "en": "how much?; how many?", "lv": 1}, {"w": "大", "py": "dà", "n": "da4", "en": "big; large; great; older (than another person)", "lv": 1}, {"w": "天气", "py": "tiānqì", "n": "tian1qi4", "en": "weather", "lv": 1}, {"w": "太", "py": "tài", "n": "tai4", "en": "highest; greatest", "lv": 1}, {"w": "女儿", "py": "nǚ'ér", "n": "nü3er2", "en": "daughter", "lv": 1}, {"w": "她", "py": "tā", "n": "ta1", "en": "she", "lv": 1}, {"w": "好", "py": "hǎo", "n": "hao3", "en": "good; appropriate; proper", "lv": 1}, {"w": "妈妈", "py": "māma", "n": "ma1ma5", "en": "mama; mommy", "lv": 1}, {"w": "字", "py": "zì", "n": "zi4", "en": "letter; symbol", "lv": 1}, {"w": "学习", "py": "xuéxí", "n": "xue2xi2", "en": "to learn; to study", "lv": 1}, {"w": "学校", "py": "xuéxiào", "n": "xue2xiao4", "en": "school", "lv": 1}, {"w": "学生", "py": "xuésheng", "n": "xue2sheng5", "en": "student; schoolchild", "lv": 1}, {"w": "家", "py": "jiā", "n": "jia1", "en": "home; family", "lv": 1}, {"w": "对不起", "py": "duìbuqǐ", "n": "dui4bu5qi3", "en": "I'm sorry; excuse me; I beg your pardon", "lv": 1}, {"w": "小", "py": "xiǎo", "n": "xiao3", "en": "small; tiny", "lv": 1}, {"w": "小姐", "py": "xiǎojie", "n": "xiao3jie5", "en": "young lady; miss", "lv": 1}, {"w": "少", "py": "shǎo", "n": "shao3", "en": "few; less", "lv": 1}, {"w": "岁", "py": "suì", "n": "sui4", "en": "classifier for years (of age); year", "lv": 1}, {"w": "工作", "py": "gōngzuò", "n": "gong1zuo4", "en": "to work; (of a machine) to operate", "lv": 1}, {"w": "年", "py": "nián", "n": "nian2", "en": "year", "lv": 1}, {"w": "开", "py": "kāi", "n": "kai1", "en": "to open (transitive or intransitive)", "lv": 1}, {"w": "很", "py": "hěn", "n": "hen3", "en": "(adverb of degree); quite", "lv": 1}, {"w": "怎么", "py": "zěnme", "n": "zen3me5", "en": "how?; what?", "lv": 1}, {"w": "怎么样", "py": "zěnmeyàng", "n": "zen3me5yang4", "en": "how?; how about?", "lv": 1}, {"w": "想", "py": "xiǎng", "n": "xiang3", "en": "to think (about); to think of; to devise", "lv": 1}, {"w": "我", "py": "wǒ", "n": "wo3", "en": "I; me; my", "lv": 1}, {"w": "我们", "py": "wǒmen", "n": "wo3men5", "en": "we; us", "lv": 1}, {"w": "打电话", "py": "dǎdiànhuà", "n": "da3dian4hua4", "en": "to make a telephone call", "lv": 1}, {"w": "日", "py": "rì", "n": "ri4", "en": "sun; day", "lv": 1}, {"w": "时候", "py": "shíhou", "n": "shi2hou5", "en": "time; length of time", "lv": 1}, {"w": "明天", "py": "míngtiān", "n": "ming2tian1", "en": "tomorrow", "lv": 1}, {"w": "星期", "py": "xīngqī", "n": "xing1qi1", "en": "week; day of the week", "lv": 1}, {"w": "昨天", "py": "zuótiān", "n": "zuo2tian1", "en": "yesterday", "lv": 1}, {"w": "是", "py": "shì", "n": "shi4", "en": "to be (followed by substantives only); correct; right; true", "lv": 1}, {"w": "月", "py": "yuè", "n": "yue4", "en": "moon; month", "lv": 1}, {"w": "有", "py": "yǒu", "n": "you3", "en": "to have; there is", "lv": 1}, {"w": "朋友", "py": "péngyou", "n": "peng2you5", "en": "friend", "lv": 1}, {"w": "本", "py": "běn", "n": "ben3", "en": "root; stem", "lv": 1}, {"w": "来", "py": "lái", "n": "lai2", "en": "to come; (used as a substitute for a more specific verb)", "lv": 1}, {"w": "杯子", "py": "bēizi", "n": "bei1zi5", "en": "cup; glass", "lv": 1}, {"w": "桌子", "py": "zhuōzi", "n": "zhuo1zi5", "en": "table; desk", "lv": 1}, {"w": "椅子", "py": "yǐzi", "n": "yi3zi5", "en": "chair", "lv": 1}, {"w": "水", "py": "shuǐ", "n": "shui3", "en": "water; river", "lv": 1}, {"w": "水果", "py": "shuǐguǒ", "n": "shui3guo3", "en": "fruit", "lv": 1}, {"w": "汉语", "py": "Hànyǔ", "n": "Han4yu3", "en": "Chinese language", "lv": 1}, {"w": "没", "py": "méi", "n": "mei2", "en": "(negative prefix for verbs) have not; not", "lv": 1}, {"w": "没关系", "py": "méiguānxi", "n": "mei2guan1xi5", "en": "it doesn't matter", "lv": 1}, {"w": "漂亮", "py": "piàoliang", "n": "piao4liang5", "en": "pretty; beautiful", "lv": 1}, {"w": "火车站", "py": "huǒchēzhàn", "n": "huo3che1zhan4", "en": "train station", "lv": 1}, {"w": "点", "py": "diǎn", "n": "dian3", "en": "point; dot", "lv": 1}, {"w": "热", "py": "rè", "n": "re4", "en": "to warm up; to heat up", "lv": 1}, {"w": "爱", "py": "ài", "n": "ai4", "en": "to love; to be fond of; to like; affection", "lv": 1}, {"w": "爸爸", "py": "bàba", "n": "ba4ba5", "en": "(coll.) father; dad", "lv": 1}, {"w": "狗", "py": "gǒu", "n": "gou3", "en": "dog", "lv": 1}, {"w": "猫", "py": "māo", "n": "mao1", "en": "cat; (dialect) to hide oneself", "lv": 1}, {"w": "现在", "py": "xiànzài", "n": "xian4zai4", "en": "now; at present", "lv": 1}, {"w": "电影", "py": "diànyǐng", "n": "dian4ying3", "en": "movie; film", "lv": 1}, {"w": "电脑", "py": "diànnǎo", "n": "dian4nao3", "en": "computer", "lv": 1}, {"w": "电视", "py": "diànshì", "n": "dian4shi4", "en": "television; TV", "lv": 1}, {"w": "的", "py": "de", "n": "de5", "en": "of; ~'s (possessive particle); (used after an attribute)", "lv": 1}, {"w": "看", "py": "kàn", "n": "kan4", "en": "to see; to look at; to read", "lv": 1}, {"w": "看见", "py": "kànjiàn", "n": "kan4jian4", "en": "to see; to catch sight of", "lv": 1}, {"w": "睡觉", "py": "shuìjiào", "n": "shui4jiao4", "en": "to go to bed; to sleep", "lv": 1}, {"w": "米饭", "py": "mǐfàn", "n": "mi3fan4", "en": "(cooked) rice", "lv": 1}, {"w": "老师", "py": "lǎoshī", "n": "lao3shi1", "en": "teacher", "lv": 1}, {"w": "能", "py": "néng", "n": "neng2", "en": "can; to be able to", "lv": 1}, {"w": "苹果", "py": "píngguǒ", "n": "ping2guo3", "en": "apple", "lv": 1}, {"w": "茶", "py": "chá", "n": "cha2", "en": "tea; tea plant", "lv": 1}, {"w": "菜", "py": "cài", "n": "cai4", "en": "dish (type of food); vegetable", "lv": 1}, {"w": "衣服", "py": "yīfu", "n": "yi1fu5", "en": "clothes", "lv": 1}, {"w": "认识", "py": "rènshi", "n": "ren4shi5", "en": "to know; to recognize", "lv": 1}, {"w": "说话", "py": "shuōhuà", "n": "shuo1hua4", "en": "to speak; to say", "lv": 1}, {"w": "请", "py": "qǐng", "n": "qing3", "en": "to ask; to invite", "lv": 1}, {"w": "读", "py": "dú", "n": "du2", "en": "to read out; to read aloud; to read", "lv": 1}, {"w": "谁", "py": "shéi", "n": "shei2", "en": "who; also pr. [shuí]", "lv": 1}, {"w": "谢谢", "py": "xièxie", "n": "xie4xie5", "en": "to thank; thanks", "lv": 1}, {"w": "这", "py": "zhè", "n": "zhe4", "en": "(pronoun) this; these", "lv": 1}, {"w": "那", "py": "nà", "n": "na4", "en": "(specifier) that; the; those (colloquial pr. [nèi])", "lv": 1}, {"w": "都", "py": "dōu", "n": "dou1", "en": "all; both; entirely; (used for emphasis) even", "lv": 1}, {"w": "里", "py": "lǐ", "n": "li3", "en": "lining; interior", "lv": 1}, {"w": "钱", "py": "qián", "n": "qian2", "en": "coin; money", "lv": 1}, {"w": "零", "py": "líng", "n": "ling2", "en": "zero; nought", "lv": 1}, {"w": "飞机", "py": "fēijī", "n": "fei1ji1", "en": "airplane", "lv": 1}, {"w": "饭馆", "py": "fànguǎn", "n": "fan4guan3", "en": "restaurant", "lv": 1}, {"w": "高兴", "py": "gāoxìng", "n": "gao1xing4", "en": "happy; glad", "lv": 1}, {"w": "一起", "py": "yīqǐ", "n": "yi1qi3", "en": "in the same place; together", "lv": 2}, {"w": "丈夫", "py": "zhàngfu", "n": "zhang4fu5", "en": "husband", "lv": 2}, {"w": "上班", "py": "shàngbān", "n": "shang4ban1", "en": "to go to work; to be on duty", "lv": 2}, {"w": "两", "py": "liǎng", "n": "liang3", "en": "two; both", "lv": 2}, {"w": "为", "py": "wèi", "n": "wei4", "en": "because of; for", "lv": 2}, {"w": "也", "py": "yě", "n": "ye3", "en": "(adverb) also; both ... and ... (before predicates only)", "lv": 2}, {"w": "事情", "py": "shìqing", "n": "shi4qing5", "en": "affair; matter; thing; business", "lv": 2}, {"w": "介绍", "py": "jièshào", "n": "jie4shao4", "en": "to introduce (sb to sb); to give a presentation", "lv": 2}, {"w": "从", "py": "cóng", "n": "cong2", "en": "from; through", "lv": 2}, {"w": "件", "py": "jiàn", "n": "jian4", "en": "item; component", "lv": 2}, {"w": "休息", "py": "xiūxi", "n": "xiu1xi5", "en": "rest; to rest", "lv": 2}, {"w": "但是", "py": "dànshì", "n": "dan4shi4", "en": "but; however", "lv": 2}, {"w": "便宜", "py": "piányi", "n": "pian2yi5", "en": "cheap; inexpensive", "lv": 2}, {"w": "元", "py": "yuán", "n": "yuan2", "en": "currency unit (esp. Chinese yuan); first", "lv": 2}, {"w": "公共汽车", "py": "gōnggòngqìchē", "n": "gong1gong4qi4che1", "en": "bus", "lv": 2}, {"w": "公司", "py": "gōngsī", "n": "gong1si1", "en": "company; firm; corporation", "lv": 2}, {"w": "公斤", "py": "gōngjīn", "n": "gong1jin1", "en": "kilogram (kg)", "lv": 2}, {"w": "再", "py": "zài", "n": "zai4", "en": "again; once more; re-; second; another", "lv": 2}, {"w": "准备", "py": "zhǔnbèi", "n": "zhun3bei4", "en": "preparation; to prepare", "lv": 2}, {"w": "出", "py": "chū", "n": "chu1", "en": "to go out; to come out", "lv": 2}, {"w": "别", "py": "bié", "n": "bie2", "en": "to leave; to part (from)", "lv": 2}, {"w": "到", "py": "dào", "n": "dao4", "en": "to reach; to arrive; to leave for; to go to", "lv": 2}, {"w": "千", "py": "qiān", "n": "qian1", "en": "thousand", "lv": 2}, {"w": "卖", "py": "mài", "n": "mai4", "en": "to sell; to betray", "lv": 2}, {"w": "去年", "py": "qùnián", "n": "qu4nian2", "en": "last year", "lv": 2}, {"w": "可以", "py": "kěyǐ", "n": "ke3yi3", "en": "can; may", "lv": 2}, {"w": "可能", "py": "kěnéng", "n": "ke3neng2", "en": "might (happen); possible", "lv": 2}, {"w": "右边", "py": "yòubian", "n": "you4bian5", "en": "right side; right, to the right", "lv": 2}, {"w": "号", "py": "hào", "n": "hao4", "en": "ordinal number; day of a month", "lv": 2}, {"w": "向", "py": "xiàng", "n": "xiang4", "en": "towards; to face", "lv": 2}, {"w": "吧", "py": "ba", "n": "ba5", "en": "(modal particle indicating suggestion or surmise); ...right?", "lv": 2}, {"w": "告诉", "py": "gàosu", "n": "gao4su5", "en": "to tell; to inform; to let know", "lv": 2}, {"w": "咖啡", "py": "kāfēi", "n": "ka1fei1", "en": "coffee (loanword)", "lv": 2}, {"w": "哥哥", "py": "gēge", "n": "ge1ge5", "en": "older brother", "lv": 2}, {"w": "唱歌", "py": "chànggē", "n": "chang4ge1", "en": "to sing a song", "lv": 2}, {"w": "回答", "py": "huídá", "n": "hui2da2", "en": "to reply; to answer; reply; answer", "lv": 2}, {"w": "因为", "py": "yīnwèi", "n": "yin1wei4", "en": "because; owing to", "lv": 2}, {"w": "外", "py": "wài", "n": "wai4", "en": "outside; in addition", "lv": 2}, {"w": "大家", "py": "dàjiā", "n": "da4jia1", "en": "everyone; influential family", "lv": 2}, {"w": "女人", "py": "nǚrén", "n": "nü3ren2", "en": "woman", "lv": 2}, {"w": "好吃", "py": "hǎochī", "n": "hao3chi1", "en": "tasty; delicious", "lv": 2}, {"w": "妹妹", "py": "mèimei", "n": "mei4mei5", "en": "younger sister; young woman", "lv": 2}, {"w": "妻子", "py": "qīzi", "n": "qi1zi5", "en": "wife", "lv": 2}, {"w": "姐姐", "py": "jiějie", "n": "jie3jie5", "en": "older sister", "lv": 2}, {"w": "姓", "py": "xìng", "n": "xing4", "en": "family name; to be surnamed", "lv": 2}, {"w": "孩子", "py": "háizi", "n": "hai2zi5", "en": "child", "lv": 2}, {"w": "它", "py": "tā", "n": "ta1", "en": "it", "lv": 2}, {"w": "完", "py": "wán", "n": "wan2", "en": "to finish; to be over", "lv": 2}, {"w": "小时", "py": "xiǎoshí", "n": "xiao3shi2", "en": "hour", "lv": 2}, {"w": "就", "py": "jiù", "n": "jiu4", "en": "(after a suppositional clause) in that case; then", "lv": 2}, {"w": "左边", "py": "zuǒbian", "n": "zuo3bian5", "en": "left; the left side", "lv": 2}, {"w": "已经", "py": "yǐjīng", "n": "yi3jing1", "en": "already", "lv": 2}, {"w": "希望", "py": "xīwàng", "n": "xi1wang4", "en": "to hope; a hope; a wish", "lv": 2}, {"w": "帮助", "py": "bāngzhù", "n": "bang1zhu4", "en": "assistance; aid; to help; to assist", "lv": 2}, {"w": "开始", "py": "kāishǐ", "n": "kai1shi3", "en": "to begin; beginning", "lv": 2}, {"w": "弟弟", "py": "dìdi", "n": "di4di5", "en": "younger brother", "lv": 2}, {"w": "张", "py": "zhāng", "n": "zhang1", "en": "to open up; to spread", "lv": 2}, {"w": "得", "py": "de", "n": "de5", "en": "structural particle: used after a verb…", "lv": 2}, {"w": "忙", "py": "máng", "n": "mang2", "en": "busy; hurriedly", "lv": 2}, {"w": "快", "py": "kuài", "n": "kuai4", "en": "rapid; quick", "lv": 2}, {"w": "快乐", "py": "kuàilè", "n": "kuai4le4", "en": "happy; joyful", "lv": 2}, {"w": "您", "py": "nín", "n": "nin2", "en": "you (courteous, as opposed to informal 你)", "lv": 2}, {"w": "意思", "py": "yìsi", "n": "yi4si5", "en": "idea; opinion", "lv": 2}, {"w": "慢", "py": "màn", "n": "man4", "en": "slow", "lv": 2}, {"w": "懂", "py": "dǒng", "n": "dong3", "en": "to understand; to comprehend", "lv": 2}, {"w": "房间", "py": "fángjiān", "n": "fang2jian1", "en": "room", "lv": 2}, {"w": "所以", "py": "suǒyǐ", "n": "suo3yi3", "en": "therefore; as a result", "lv": 2}, {"w": "手机", "py": "shǒujī", "n": "shou3ji1", "en": "cell phone; mobile phone", "lv": 2}, {"w": "手表", "py": "shǒubiǎo", "n": "shou3biao3", "en": "wristwatch", "lv": 2}, {"w": "打篮球", "py": "dǎlánqiú", "n": "da3lan2qiu2", "en": "to play basketball", "lv": 2}, {"w": "找", "py": "zhǎo", "n": "zhao3", "en": "to try to find; to look for", "lv": 2}, {"w": "报纸", "py": "bàozhǐ", "n": "bao4zhi3", "en": "newspaper; newsprint", "lv": 2}, {"w": "教室", "py": "jiàoshì", "n": "jiao4shi4", "en": "classroom", "lv": 2}, {"w": "新", "py": "xīn", "n": "xin1", "en": "new; newly", "lv": 2}, {"w": "旁边", "py": "pángbiān", "n": "pang2bian1", "en": "side; adjacent place", "lv": 2}, {"w": "旅游", "py": "lǚyóu", "n": "lü3you2", "en": "trip; journey", "lv": 2}, {"w": "早上", "py": "zǎoshang", "n": "zao3shang5", "en": "early morning", "lv": 2}, {"w": "时间", "py": "shíjiān", "n": "shi2jian1", "en": "time; period", "lv": 2}, {"w": "晚上", "py": "wǎnshang", "n": "wan3shang5", "en": "evening; night", "lv": 2}, {"w": "晴", "py": "qíng", "n": "qing2", "en": "clear; fine (weather)", "lv": 2}, {"w": "最", "py": "zuì", "n": "zui4", "en": "most; the most", "lv": 2}, {"w": "服务员", "py": "fúwùyuán", "n": "fu2wu4yuan2", "en": "waiter; waitress", "lv": 2}, {"w": "机场", "py": "jīchǎng", "n": "ji1chang3", "en": "airport; airfield", "lv": 2}, {"w": "次", "py": "cì", "n": "ci4", "en": "next in sequence; second", "lv": 2}, {"w": "欢迎", "py": "huānyíng", "n": "huan1ying2", "en": "to welcome; welcome", "lv": 2}, {"w": "正在", "py": "zhèngzài", "n": "zheng4zai4", "en": "just at (that time); right in (that place)", "lv": 2}, {"w": "每", "py": "měi", "n": "mei3", "en": "each; every", "lv": 2}, {"w": "比", "py": "bǐ", "n": "bi3", "en": "to compare", "lv": 2}, {"w": "洗", "py": "xǐ", "n": "xi3", "en": "to wash; to bathe; to develop (photographs)", "lv": 2}, {"w": "游泳", "py": "yóuyǒng", "n": "you2yong3", "en": "swimming; to swim", "lv": 2}, {"w": "牛奶", "py": "niúnǎi", "n": "niu2nai3", "en": "cow's milk", "lv": 2}, {"w": "玩", "py": "wán", "n": "wan2", "en": "to play; to have fun", "lv": 2}, {"w": "生日", "py": "shēngrì", "n": "sheng1ri4", "en": "birthday", "lv": 2}, {"w": "生病", "py": "shēngbìng", "n": "sheng1bing4", "en": "to fall ill", "lv": 2}, {"w": "男人", "py": "nánrén", "n": "nan2ren2", "en": "a man; a male", "lv": 2}, {"w": "白", "py": "bái", "n": "bai2", "en": "white; snowy", "lv": 2}, {"w": "百", "py": "bǎi", "n": "bai3", "en": "hundred; numerous", "lv": 2}, {"w": "真", "py": "zhēn", "n": "zhen1", "en": "really; truly", "lv": 2}, {"w": "眼睛", "py": "yǎnjing", "n": "yan3jing5", "en": "eye", "lv": 2}, {"w": "着", "py": "zhe", "n": "zhe5", "en": "aspect particle indicating action in progress or ongoing…", "lv": 2}, {"w": "知道", "py": "zhīdào", "n": "zhi1dao4", "en": "to know; to become aware of; also pr. [zhī dao]", "lv": 2}, {"w": "票", "py": "piào", "n": "piao4", "en": "ticket; ballot", "lv": 2}, {"w": "离", "py": "lí", "n": "li2", "en": "to leave; to part from", "lv": 2}, {"w": "穿", "py": "chuān", "n": "chuan1", "en": "to wear; to put on", "lv": 2}, {"w": "笑", "py": "xiào", "n": "xiao4", "en": "to laugh; to smile; to laugh at", "lv": 2}, {"w": "第一", "py": "dìyī", "n": "di4yi1", "en": "first; number one", "lv": 2}, {"w": "累", "py": "lèi", "n": "lei4", "en": "tired; weary", "lv": 2}, {"w": "红", "py": "hóng", "n": "hong2", "en": "red; popular", "lv": 2}, {"w": "给", "py": "gěi", "n": "gei3", "en": "to; for", "lv": 2}, {"w": "羊肉", "py": "yángròu", "n": "yang2rou4", "en": "mutton; goat meat", "lv": 2}, {"w": "考试", "py": "kǎoshì", "n": "kao3shi4", "en": "to take an exam; exam", "lv": 2}, {"w": "自行车", "py": "zìxíngchē", "n": "zi4xing2che1", "en": "bicycle; bike", "lv": 2}, {"w": "船", "py": "chuán", "n": "chuan2", "en": "boat; vessel", "lv": 2}, {"w": "药", "py": "yào", "n": "yao4", "en": "medicine; drug", "lv": 2}, {"w": "西瓜", "py": "xīguā", "n": "xi1gua1", "en": "watermelon", "lv": 2}, {"w": "要", "py": "yào", "n": "yao4", "en": "to want; to need; to ask for; will; shall; about to", "lv": 2}, {"w": "觉得", "py": "juéde", "n": "jue2de5", "en": "to think that ...; to feel that ...", "lv": 2}, {"w": "让", "py": "ràng", "n": "rang4", "en": "to yield; to permit", "lv": 2}, {"w": "课", "py": "kè", "n": "ke4", "en": "subject; course", "lv": 2}, {"w": "贵", "py": "guì", "n": "gui4", "en": "expensive; noble", "lv": 2}, {"w": "走", "py": "zǒu", "n": "zou3", "en": "to walk; to go", "lv": 2}, {"w": "起床", "py": "qǐchuáng", "n": "qi3chuang2", "en": "to get out of bed; to get up", "lv": 2}, {"w": "跑步", "py": "pǎobù", "n": "pao3bu4", "en": "to run; to jog", "lv": 2}, {"w": "路", "py": "lù", "n": "lu4", "en": "road; journey", "lv": 2}, {"w": "跳舞", "py": "tiàowǔ", "n": "tiao4wu3", "en": "to dance", "lv": 2}, {"w": "踢", "py": "tī", "n": "ti1", "en": "to kick; to play (e.g. soccer)", "lv": 2}, {"w": "身体", "py": "shēntǐ", "n": "shen1ti3", "en": "the body; one's health", "lv": 2}, {"w": "运动", "py": "yùndòng", "n": "yun4dong4", "en": "to move; to exercise", "lv": 2}, {"w": "近", "py": "jìn", "n": "jin4", "en": "near; close to", "lv": 2}, {"w": "还", "py": "hái", "n": "hai2", "en": "still; still in progress", "lv": 2}, {"w": "进", "py": "jìn", "n": "jin4", "en": "to go forward; to advance", "lv": 2}, {"w": "远", "py": "yuǎn", "n": "yuan3", "en": "far; distant", "lv": 2}, {"w": "送", "py": "sòng", "n": "song4", "en": "to send; to deliver; to transmit; to give (as a present)", "lv": 2}, {"w": "错", "py": "cuò", "n": "cuo4", "en": "mistake; wrong", "lv": 2}, {"w": "长", "py": "cháng", "n": "chang2", "en": "length; long", "lv": 2}, {"w": "门", "py": "mén", "n": "men2", "en": "gate; door", "lv": 2}, {"w": "问", "py": "wèn", "n": "wen4", "en": "to ask; to inquire", "lv": 2}, {"w": "问题", "py": "wèntí", "n": "wen4ti2", "en": "question; problem", "lv": 2}, {"w": "阴", "py": "yīn", "n": "yin1", "en": "overcast (weather); cloudy", "lv": 2}, {"w": "雪", "py": "xuě", "n": "xue3", "en": "snow; (literary) to wipe away (a humiliation etc)", "lv": 2}, {"w": "非常", "py": "fēicháng", "n": "fei1chang2", "en": "very; really; unusual; extraordinary", "lv": 2}, {"w": "题", "py": "tí", "n": "ti2", "en": "topic; problem for discussion", "lv": 2}, {"w": "颜色", "py": "yánsè", "n": "yan2se4", "en": "color; countenance", "lv": 2}, {"w": "高", "py": "gāo", "n": "gao1", "en": "high; tall", "lv": 2}, {"w": "鱼", "py": "yú", "n": "yu2", "en": "fish", "lv": 2}, {"w": "鸡蛋", "py": "jīdàn", "n": "ji1dan4", "en": "(chicken) egg; hen's egg", "lv": 2}, {"w": "黑", "py": "hēi", "n": "hei1", "en": "black; dark", "lv": 2}, {"w": "一会儿", "py": "yīhuìr", "n": "yi1hui4r5", "en": "a moment; a while", "lv": 3}, {"w": "一共", "py": "yīgòng", "n": "yi1gong4", "en": "altogether", "lv": 3}, {"w": "一定", "py": "yīdìng", "n": "yi1ding4", "en": "surely; certainly", "lv": 3}, {"w": "一样", "py": "yīyàng", "n": "yi1yang4", "en": "same; like", "lv": 3}, {"w": "一直", "py": "yīzhí", "n": "yi1zhi2", "en": "straight (in a straight line)", "lv": 3}, {"w": "一般", "py": "yībān", "n": "yi1ban1", "en": "same; ordinary", "lv": 3}, {"w": "一边", "py": "yībiān", "n": "yi1bian1", "en": "one side; either side", "lv": 3}, {"w": "万", "py": "wàn", "n": "wan4", "en": "ten thousand; a great number", "lv": 3}, {"w": "上网", "py": "shàngwǎng", "n": "shang4wang3", "en": "to go online; to connect to the Internet", "lv": 3}, {"w": "世界", "py": "shìjiè", "n": "shi4jie4", "en": "world", "lv": 3}, {"w": "东", "py": "dōng", "n": "dong1", "en": "east; host (i.e. sitting on east side of guest)", "lv": 3}, {"w": "中间", "py": "zhōngjiān", "n": "zhong1jian1", "en": "the middle; the inside", "lv": 3}, {"w": "为了", "py": "wèile", "n": "wei4le5", "en": "for; for the purpose of; in order to", "lv": 3}, {"w": "为什么", "py": "wèishénme", "n": "wei4shen2me5", "en": "why?; for what reason?", "lv": 3}, {"w": "主要", "py": "zhǔyào", "n": "zhu3yao4", "en": "main; principal", "lv": 3}, {"w": "举行", "py": "jǔxíng", "n": "ju3xing2", "en": "to hold (a meeting, ceremony etc)", "lv": 3}, {"w": "久", "py": "jiǔ", "n": "jiu3", "en": "(long) time; (long) duration of time", "lv": 3}, {"w": "习惯", "py": "xíguàn", "n": "xi2guan4", "en": "habit; custom", "lv": 3}, {"w": "了解", "py": "liǎojiě", "n": "liao3jie3", "en": "to understand; to realize", "lv": 3}, {"w": "云", "py": "yún", "n": "yun2", "en": "cloud", "lv": 3}, {"w": "以为", "py": "yǐwéi", "n": "yi3wei2", "en": "to think (i.e. to take it to be true that ...)…", "lv": 3}, {"w": "以前", "py": "yǐqián", "n": "yi3qian2", "en": "before; formerly", "lv": 3}, {"w": "以后", "py": "yǐhòu", "n": "yi3hou4", "en": "after; later", "lv": 3}, {"w": "会议", "py": "huìyì", "n": "hui4yi4", "en": "meeting; conference", "lv": 3}, {"w": "伞", "py": "sǎn", "n": "san3", "en": "umbrella; parasol", "lv": 3}, {"w": "位", "py": "wèi", "n": "wei4", "en": "position; location", "lv": 3}, {"w": "低", "py": "dī", "n": "di1", "en": "low; beneath", "lv": 3}, {"w": "体育", "py": "tǐyù", "n": "ti3yu4", "en": "sports; physical education", "lv": 3}, {"w": "作业", "py": "zuòyè", "n": "zuo4ye4", "en": "school assignment; homework", "lv": 3}, {"w": "作用", "py": "zuòyòng", "n": "zuo4yong4", "en": "to act on; to affect", "lv": 3}, {"w": "使", "py": "shǐ", "n": "shi3", "en": "to make; to cause", "lv": 3}, {"w": "信", "py": "xìn", "n": "xin4", "en": "letter; mail", "lv": 3}, {"w": "借", "py": "jiè", "n": "jie4", "en": "to lend; to borrow", "lv": 3}, {"w": "健康", "py": "jiànkāng", "n": "jian4kang1", "en": "health; healthy", "lv": 3}, {"w": "像", "py": "xiàng", "n": "xiang4", "en": "to resemble; to be like", "lv": 3}, {"w": "先", "py": "xiān", "n": "xian1", "en": "early; prior", "lv": 3}, {"w": "公园", "py": "gōngyuán", "n": "gong1yuan2", "en": "park (for public recreation)", "lv": 3}, {"w": "关", "py": "guān", "n": "guan1", "en": "mountain pass; to close; to shut; to turn off", "lv": 3}, {"w": "关于", "py": "guānyú", "n": "guan1yu2", "en": "pertaining to; concerning", "lv": 3}, {"w": "关心", "py": "guānxīn", "n": "guan1xin1", "en": "to be concerned about; to care about", "lv": 3}, {"w": "关系", "py": "guānxi", "n": "guan1xi5", "en": "relation; relationship", "lv": 3}, {"w": "兴趣", "py": "xìngqù", "n": "xing4qu4", "en": "interest (desire to know about sth)", "lv": 3}, {"w": "其他", "py": "qítā", "n": "qi2ta1", "en": "other; (sth or sb) else", "lv": 3}, {"w": "其实", "py": "qíshí", "n": "qi2shi2", "en": "actually; in fact; really", "lv": 3}, {"w": "冬", "py": "dōng", "n": "dong1", "en": "winter", "lv": 3}, {"w": "冰箱", "py": "bīngxiāng", "n": "bing1xiang1", "en": "icebox; freezer cabinet", "lv": 3}, {"w": "决定", "py": "juédìng", "n": "jue2ding4", "en": "to decide (to do something); to resolve", "lv": 3}, {"w": "几乎", "py": "jīhū", "n": "ji1hu1", "en": "almost; nearly; practically", "lv": 3}, {"w": "出现", "py": "chūxiàn", "n": "chu1xian4", "en": "to appear; to arise", "lv": 3}, {"w": "分", "py": "fēn", "n": "fen1", "en": "to divide; to separate; to distribute; to allocate", "lv": 3}, {"w": "刚才", "py": "gāngcái", "n": "gang1cai2", "en": "just now; a moment ago", "lv": 3}, {"w": "别人", "py": "biéren", "n": "bie2ren5", "en": "other people; others; other person", "lv": 3}, {"w": "刮", "py": "guā", "n": "gua1", "en": "to scrape; to blow", "lv": 3}, {"w": "刷", "py": "shuā", "n": "shua1", "en": "to brush; to paint", "lv": 3}, {"w": "刻", "py": "kè", "n": "ke4", "en": "quarter (hour); moment", "lv": 3}, {"w": "办公室", "py": "bàngōngshì", "n": "ban4gong1shi4", "en": "office; business premises", "lv": 3}, {"w": "办法", "py": "bànfǎ", "n": "ban4fa3", "en": "means; method", "lv": 3}, {"w": "动物", "py": "dòngwù", "n": "dong4wu4", "en": "animal", "lv": 3}, {"w": "努力", "py": "nǔlì", "n": "nu3li4", "en": "to make an effort; to try hard; to strive", "lv": 3}, {"w": "包", "py": "bāo", "n": "bao1", "en": "to cover; to wrap", "lv": 3}, {"w": "北方", "py": "běifāng", "n": "bei3fang1", "en": "north; the northern part a country", "lv": 3}, {"w": "半", "py": "bàn", "n": "ban4", "en": "half; semi-", "lv": 3}, {"w": "南", "py": "nán", "n": "nan2", "en": "south", "lv": 3}, {"w": "历史", "py": "lìshǐ", "n": "li4shi3", "en": "history", "lv": 3}, {"w": "厨房", "py": "chúfáng", "n": "chu2fang2", "en": "kitchen", "lv": 3}, {"w": "参加", "py": "cānjiā", "n": "can1jia1", "en": "to participate; to take part", "lv": 3}, {"w": "又", "py": "yòu", "n": "you4", "en": "(once) again; also", "lv": 3}, {"w": "双", "py": "shuāng", "n": "shuang1", "en": "two; double", "lv": 3}, {"w": "发烧", "py": "fāshāo", "n": "fa1shao1", "en": "to have a high temperature (from illness); to have a fever", "lv": 3}, {"w": "发现", "py": "fāxiàn", "n": "fa1xian4", "en": "to notice; to become aware of", "lv": 3}, {"w": "叔叔", "py": "shūshu", "n": "shu1shu5", "en": "father's younger brother; uncle", "lv": 3}, {"w": "变化", "py": "biànhuà", "n": "bian4hua4", "en": "(intransitive) to change; to vary; change; variation", "lv": 3}, {"w": "口", "py": "kǒu", "n": "kou3", "en": "mouth", "lv": 3}, {"w": "句子", "py": "jùzi", "n": "ju4zi5", "en": "sentence", "lv": 3}, {"w": "只", "py": "zhǐ", "n": "zhi3", "en": "only; merely", "lv": 3}, {"w": "可爱", "py": "kě'ài", "n": "ke3ai4", "en": "adorable; cute", "lv": 3}, {"w": "司机", "py": "sījī", "n": "si1ji1", "en": "chauffeur; driver", "lv": 3}, {"w": "同事", "py": "tóngshì", "n": "tong2shi4", "en": "colleague; co-worker", "lv": 3}, {"w": "同意", "py": "tóngyì", "n": "tong2yi4", "en": "to agree; to consent", "lv": 3}, {"w": "周末", "py": "zhōumò", "n": "zhou1mo4", "en": "weekend", "lv": 3}, {"w": "哭", "py": "kū", "n": "ku1", "en": "to cry; to weep", "lv": 3}, {"w": "啊", "py": "a", "n": "a5", "en": "modal particle ending sentence, showing affirmation…", "lv": 3}, {"w": "啤酒", "py": "píjiǔ", "n": "pi2jiu3", "en": "beer (loanword)", "lv": 3}, {"w": "国家", "py": "guójiā", "n": "guo2jia1", "en": "country; nation; state", "lv": 3}, {"w": "图书馆", "py": "túshūguǎn", "n": "tu2shu1guan3", "en": "library", "lv": 3}, {"w": "地", "py": "de", "n": "de5", "en": "-ly", "lv": 3}, {"w": "地图", "py": "dìtú", "n": "di4tu2", "en": "map", "lv": 3}, {"w": "地方", "py": "dìfang", "n": "di4fang5", "en": "area; place", "lv": 3}, {"w": "地铁", "py": "dìtiě", "n": "di4tie3", "en": "underground railway; subway; subway train", "lv": 3}, {"w": "坏", "py": "huài", "n": "huai4", "en": "bad; spoiled", "lv": 3}, {"w": "城市", "py": "chéngshì", "n": "cheng2shi4", "en": "city; town", "lv": 3}, {"w": "声音", "py": "shēngyīn", "n": "sheng1yin1", "en": "voice; sound", "lv": 3}, {"w": "复习", "py": "fùxí", "n": "fu4xi2", "en": "to review; revision", "lv": 3}, {"w": "夏", "py": "xià", "n": "xia4", "en": "summer", "lv": 3}, {"w": "多么", "py": "duōme", "n": "duo1me5", "en": "how (wonderful etc); what (a great idea etc)", "lv": 3}, {"w": "太阳", "py": "tàiyang", "n": "tai4yang5", "en": "sun", "lv": 3}, {"w": "头发", "py": "tóufa", "n": "tou2fa5", "en": "hair (on the head)", "lv": 3}, {"w": "奇怪", "py": "qíguài", "n": "qi2guai4", "en": "strange; odd", "lv": 3}, {"w": "奶奶", "py": "nǎinai", "n": "nai3nai5", "en": "(informal) grandma (paternal grandmother)", "lv": 3}, {"w": "如果", "py": "rúguǒ", "n": "ru2guo3", "en": "if; in case", "lv": 3}, {"w": "字典", "py": "zìdiǎn", "n": "zi4dian3", "en": "Chinese character dictionary…", "lv": 3}, {"w": "季节", "py": "jìjié", "n": "ji4jie2", "en": "time; season", "lv": 3}, {"w": "安静", "py": "ānjìng", "n": "an1jing4", "en": "quiet; peaceful", "lv": 3}, {"w": "完成", "py": "wánchéng", "n": "wan2cheng2", "en": "to complete; to accomplish", "lv": 3}, {"w": "客人", "py": "kèrén", "n": "ke4ren2", "en": "visitor; guest", "lv": 3}, {"w": "害怕", "py": "hàipà", "n": "hai4pa4", "en": "to be afraid; to be scared", "lv": 3}, {"w": "容易", "py": "róngyì", "n": "rong2yi4", "en": "easy; straightforward; likely; liable to; apt to", "lv": 3}, {"w": "宾馆", "py": "bīnguǎn", "n": "bin1guan3", "en": "guesthouse; lodge", "lv": 3}, {"w": "小心", "py": "xiǎoxīn", "n": "xiao3xin1", "en": "to be careful; to take care", "lv": 3}, {"w": "层", "py": "céng", "n": "ceng2", "en": "to pile on top of one another; layer; stratum", "lv": 3}, {"w": "差", "py": "chà", "n": "cha4", "en": "different; wrong; mistaken", "lv": 3}, {"w": "带", "py": "dài", "n": "dai4", "en": "band; belt", "lv": 3}, {"w": "帮忙", "py": "bāngmáng", "n": "bang1mang2", "en": "to help; to lend a hand", "lv": 3}, {"w": "帽子", "py": "màozi", "n": "mao4zi5", "en": "hat; cap", "lv": 3}, {"w": "干净", "py": "gānjìng", "n": "gan1jing4", "en": "clean; neat", "lv": 3}, {"w": "年级", "py": "niánjí", "n": "nian2ji2", "en": "grade; year (in school, college etc)", "lv": 3}, {"w": "年轻", "py": "niánqīng", "n": "nian2qing1", "en": "young", "lv": 3}, {"w": "应该", "py": "yīnggāi", "n": "ying1gai1", "en": "ought to; should", "lv": 3}, {"w": "当然", "py": "dāngrán", "n": "dang1ran2", "en": "only natural; as it should be", "lv": 3}, {"w": "影响", "py": "yǐngxiǎng", "n": "ying3xiang3", "en": "influence; effect", "lv": 3}, {"w": "必须", "py": "bìxū", "n": "bi4xu1", "en": "to have to; must", "lv": 3}, {"w": "忘记", "py": "wàngjì", "n": "wang4ji4", "en": "to forget", "lv": 3}, {"w": "总是", "py": "zǒngshì", "n": "zong3shi4", "en": "always", "lv": 3}, {"w": "感冒", "py": "gǎnmào", "n": "gan3mao4", "en": "to catch cold; (common) cold", "lv": 3}, {"w": "愿意", "py": "yuànyì", "n": "yuan4yi4", "en": "to wish; to want", "lv": 3}, {"w": "成绩", "py": "chéngjì", "n": "cheng2ji4", "en": "achievement; performance records", "lv": 3}, {"w": "或者", "py": "huòzhě", "n": "huo4zhe3", "en": "or; possibly; maybe; perhaps", "lv": 3}, {"w": "才", "py": "cái", "n": "cai2", "en": "ability; talent; sb of a certain type", "lv": 3}, {"w": "打扫", "py": "dǎsǎo", "n": "da3sao3", "en": "to clean; to sweep", "lv": 3}, {"w": "打算", "py": "dǎsuàn", "n": "da3suan4", "en": "to plan; to intend", "lv": 3}, {"w": "把", "py": "bǎ", "n": "ba3", "en": "to hold; to grasp", "lv": 3}, {"w": "护照", "py": "hùzhào", "n": "hu4zhao4", "en": "passport", "lv": 3}, {"w": "担心", "py": "dānxīn", "n": "dan1xin1", "en": "anxious; worried", "lv": 3}, {"w": "拿", "py": "ná", "n": "na2", "en": "to hold; to seize", "lv": 3}, {"w": "换", "py": "huàn", "n": "huan4", "en": "to exchange; to change (clothes etc)", "lv": 3}, {"w": "接", "py": "jiē", "n": "jie1", "en": "to receive; to answer (the phone)", "lv": 3}, {"w": "提高", "py": "tígāo", "n": "ti2gao1", "en": "to raise; to increase", "lv": 3}, {"w": "搬", "py": "bān", "n": "ban1", "en": "to move (i.e. relocate oneself)", "lv": 3}, {"w": "放", "py": "fàng", "n": "fang4", "en": "to put; to place", "lv": 3}, {"w": "放心", "py": "fàngxīn", "n": "fang4xin1", "en": "to feel relieved; to feel reassured", "lv": 3}, {"w": "故事", "py": "gùshi", "n": "gu4shi5", "en": "narrative; story; tale", "lv": 3}, {"w": "教", "py": "jiāo", "n": "jiao1", "en": "to teach", "lv": 3}, {"w": "敢", "py": "gǎn", "n": "gan3", "en": "to dare; daring", "lv": 3}, {"w": "数学", "py": "shùxué", "n": "shu4xue2", "en": "mathematics; mathematical", "lv": 3}, {"w": "文化", "py": "wénhuà", "n": "wen2hua4", "en": "culture; civilization", "lv": 3}, {"w": "新闻", "py": "xīnwén", "n": "xin1wen2", "en": "news", "lv": 3}, {"w": "新鲜", "py": "xīnxiān", "n": "xin1xian1", "en": "fresh (experience, food etc); freshness", "lv": 3}, {"w": "方便", "py": "fāngbiàn", "n": "fang1bian4", "en": "convenient; suitable", "lv": 3}, {"w": "旧", "py": "jiù", "n": "jiu4", "en": "old; opposite: new 新", "lv": 3}, {"w": "明白", "py": "míngbai", "n": "ming2bai5", "en": "clear; obvious", "lv": 3}, {"w": "春", "py": "chūn", "n": "chun1", "en": "spring (season); gay", "lv": 3}, {"w": "普通话", "py": "pǔtōnghuà", "n": "pu3tong1hua4", "en": "Mandarin (common language)", "lv": 3}, {"w": "更", "py": "gèng", "n": "geng4", "en": "more; even more", "lv": 3}, {"w": "最近", "py": "zuìjìn", "n": "zui4jin4", "en": "recently; soon", "lv": 3}, {"w": "月亮", "py": "yuèliang", "n": "yue4liang5", "en": "the moon", "lv": 3}, {"w": "有名", "py": "yǒumíng", "n": "you3ming2", "en": "famous; well-known", "lv": 3}, {"w": "机会", "py": "jīhuì", "n": "ji1hui4", "en": "opportunity; chance", "lv": 3}, {"w": "条", "py": "tiáo", "n": "tiao2", "en": "strip; item", "lv": 3}, {"w": "极", "py": "jí", "n": "ji2", "en": "extremely; pole (geography, physics)", "lv": 3}, {"w": "果汁", "py": "guǒzhī", "n": "guo3zhi1", "en": "fruit juice", "lv": 3}, {"w": "树", "py": "shù", "n": "shu4", "en": "tree; to cultivate", "lv": 3}, {"w": "校长", "py": "xiàozhǎng", "n": "xiao4zhang3", "en": "(college, university) president; headmaster", "lv": 3}, {"w": "根据", "py": "gēnjù", "n": "gen1ju4", "en": "according to; based on", "lv": 3}, {"w": "检查", "py": "jiǎnchá", "n": "jian3cha2", "en": "inspection; to examine", "lv": 3}, {"w": "楼", "py": "lóu", "n": "lou2", "en": "house with more than 1 story; storied building", "lv": 3}, {"w": "段", "py": "duàn", "n": "duan4", "en": "paragraph; section", "lv": 3}, {"w": "比赛", "py": "bǐsài", "n": "bi3sai4", "en": "competition (sports etc); match", "lv": 3}, {"w": "比较", "py": "bǐjiào", "n": "bi3jiao4", "en": "to compare; to contrast", "lv": 3}, {"w": "水平", "py": "shuǐpíng", "n": "shui3ping2", "en": "level (of achievement etc); standard", "lv": 3}, {"w": "河", "py": "hé", "n": "he2", "en": "river", "lv": 3}, {"w": "注意", "py": "zhùyì", "n": "zhu4yi4", "en": "to take note of; to pay attention to", "lv": 3}, {"w": "洗手间", "py": "xǐshǒujiān", "n": "xi3shou3jian1", "en": "toilet; lavatory", "lv": 3}, {"w": "洗澡", "py": "xǐzǎo", "n": "xi3zao3", "en": "to bathe; to take a shower", "lv": 3}, {"w": "清楚", "py": "qīngchu", "n": "qing1chu5", "en": "clear; distinct", "lv": 3}, {"w": "渴", "py": "kě", "n": "ke3", "en": "thirsty", "lv": 3}, {"w": "游戏", "py": "yóuxì", "n": "you2xi4", "en": "game; to play", "lv": 3}, {"w": "满意", "py": "mǎnyì", "n": "man3yi4", "en": "satisfied; pleased", "lv": 3}, {"w": "灯", "py": "dēng", "n": "deng1", "en": "lamp; light", "lv": 3}, {"w": "热情", "py": "rèqíng", "n": "re4qing2", "en": "cordial; enthusiastic", "lv": 3}, {"w": "然后", "py": "ránhòu", "n": "ran2hou4", "en": "then; after that; afterwards", "lv": 3}, {"w": "照片", "py": "zhàopiàn", "n": "zhao4pian4", "en": "photograph; picture", "lv": 3}, {"w": "照相机", "py": "zhàoxiàngjī", "n": "zhao4xiang4ji1", "en": "camera", "lv": 3}, {"w": "照顾", "py": "zhàogu", "n": "zhao4gu5", "en": "to take care of; to show consideration", "lv": 3}, {"w": "熊猫", "py": "xióngmāo", "n": "xiong2mao1", "en": "panda", "lv": 3}, {"w": "爬山", "py": "páshān", "n": "pa2shan1", "en": "to climb a mountain; to mountaineer", "lv": 3}, {"w": "爱好", "py": "àihào", "n": "ai4hao4", "en": "to like; to be fond of; to take pleasure in; to be keen on", "lv": 3}, {"w": "爷爷", "py": "yéye", "n": "ye2ye5", "en": "(coll.) father's father; paternal grandfather", "lv": 3}, {"w": "特别", "py": "tèbié", "n": "te4bie2", "en": "unusual; special; very; especially; particularly", "lv": 3}, {"w": "环境", "py": "huánjìng", "n": "huan2jing4", "en": "environment; circumstances", "lv": 3}, {"w": "班", "py": "bān", "n": "ban1", "en": "team; class; grade; (military) squad", "lv": 3}, {"w": "甜", "py": "tián", "n": "tian2", "en": "sweet", "lv": 3}, {"w": "生气", "py": "shēngqì", "n": "sheng1qi4", "en": "to get angry; to take offense", "lv": 3}, {"w": "用", "py": "yòng", "n": "yong4", "en": "to use; to employ", "lv": 3}, {"w": "电子", "py": "diànzǐ", "n": "dian4zi3", "en": "electronic; electron (particle physics)", "lv": 3}, {"w": "电梯", "py": "diàntī", "n": "dian4ti1", "en": "elevator; escalator", "lv": 3}, {"w": "画", "py": "huà", "n": "hua4", "en": "to draw; to paint; picture; painting", "lv": 3}, {"w": "疼", "py": "téng", "n": "teng2", "en": "(it) hurts; sore; to love dearly", "lv": 3}, {"w": "瘦", "py": "shòu", "n": "shou4", "en": "thin; to lose weight", "lv": 3}, {"w": "盘子", "py": "pánzi", "n": "pan2zi5", "en": "tray; plate", "lv": 3}, {"w": "相信", "py": "xiāngxìn", "n": "xiang1xin4", "en": "to be convinced (that sth is true); to believe; to…", "lv": 3}, {"w": "相同", "py": "xiāngtóng", "n": "xiang1tong2", "en": "identical; same", "lv": 3}, {"w": "眼镜", "py": "yǎnjìng", "n": "yan3jing4", "en": "spectacles; eyeglasses", "lv": 3}, {"w": "着急", "py": "zháojí", "n": "zhao2ji2", "en": "to worry; to feel anxious", "lv": 3}, {"w": "短", "py": "duǎn", "n": "duan3", "en": "short; brief", "lv": 3}, {"w": "矮", "py": "ǎi", "n": "ai3", "en": "low; short (in length)", "lv": 3}, {"w": "碗", "py": "wǎn", "n": "wan3", "en": "bowl; cup", "lv": 3}, {"w": "礼物", "py": "lǐwù", "n": "li3wu4", "en": "gift; present", "lv": 3}, {"w": "祝", "py": "zhù", "n": "zhu4", "en": "to pray for; to wish (sb bon voyage, happy birthday etc)", "lv": 3}, {"w": "离开", "py": "líkāi", "n": "li2kai1", "en": "to depart; to leave", "lv": 3}, {"w": "秋", "py": "qiū", "n": "qiu1", "en": "autumn; fall", "lv": 3}, {"w": "种", "py": "zhǒng", "n": "zhong3", "en": "seed; species", "lv": 3}, {"w": "空调", "py": "kōngtiáo", "n": "kong1tiao2", "en": "air conditioning", "lv": 3}, {"w": "突然", "py": "tūrán", "n": "tu1ran2", "en": "sudden; abrupt; unexpected", "lv": 3}, {"w": "站", "py": "zhàn", "n": "zhan4", "en": "station; to stand", "lv": 3}, {"w": "筷子", "py": "kuàizi", "n": "kuai4zi5", "en": "chopsticks", "lv": 3}, {"w": "简单", "py": "jiǎndān", "n": "jian3dan1", "en": "simple; not complicated", "lv": 3}, {"w": "米", "py": "mǐ", "n": "mi3", "en": "rice; meter (classifier)", "lv": 3}, {"w": "糖", "py": "táng", "n": "tang2", "en": "sugar; sweets", "lv": 3}, {"w": "练习", "py": "liànxí", "n": "lian4xi2", "en": "to practice; exercise", "lv": 3}, {"w": "终于", "py": "zhōngyú", "n": "zhong1yu2", "en": "at last; in the end", "lv": 3}, {"w": "经常", "py": "jīngcháng", "n": "jing1chang2", "en": "frequently; constantly; regularly; often", "lv": 3}, {"w": "经理", "py": "jīnglǐ", "n": "jing1li3", "en": "manager; director", "lv": 3}, {"w": "经过", "py": "jīngguò", "n": "jing1guo4", "en": "to pass; to go through", "lv": 3}, {"w": "结婚", "py": "jiéhūn", "n": "jie2hun1", "en": "to marry; to get married", "lv": 3}, {"w": "结束", "py": "jiéshù", "n": "jie2shu4", "en": "termination; to finish", "lv": 3}, {"w": "绿", "py": "lǜ", "n": "lü4", "en": "green", "lv": 3}, {"w": "老", "py": "lǎo", "n": "lao3", "en": "prefix used before the surname of a person or a numeral…", "lv": 3}, {"w": "而且", "py": "érqiě", "n": "er2qie3", "en": "(not only ...) but also; moreover", "lv": 3}, {"w": "耳朵", "py": "ěrduo", "n": "er3duo5", "en": "ear; handle (on a cup)", "lv": 3}, {"w": "聪明", "py": "cōngming", "n": "cong1ming5", "en": "intelligent; clever", "lv": 3}, {"w": "胖", "py": "pàng", "n": "pang4", "en": "fat; plump", "lv": 3}, {"w": "脚", "py": "jiǎo", "n": "jiao3", "en": "foot; leg (of an animal or an object)", "lv": 3}, {"w": "脸", "py": "liǎn", "n": "lian3", "en": "face", "lv": 3}, {"w": "腿", "py": "tuǐ", "n": "tui3", "en": "leg", "lv": 3}, {"w": "自己", "py": "zìjǐ", "n": "zi4ji3", "en": "oneself; one's own", "lv": 3}, {"w": "舒服", "py": "shūfu", "n": "shu1fu5", "en": "comfortable; feeling well", "lv": 3}, {"w": "节日", "py": "jiérì", "n": "jie2ri4", "en": "holiday; festival", "lv": 3}, {"w": "节目", "py": "jiémù", "n": "jie2mu4", "en": "program; item (on a program)", "lv": 3}, {"w": "花", "py": "huā", "n": "hua1", "en": "flower; blossom", "lv": 3}, {"w": "花园", "py": "huāyuán", "n": "hua1yuan2", "en": "garden", "lv": 3}, {"w": "草", "py": "cǎo", "n": "cao3", "en": "grass; straw", "lv": 3}, {"w": "菜单", "py": "càidān", "n": "cai4dan1", "en": "menu", "lv": 3}, {"w": "葡萄", "py": "pútao", "n": "pu2tao5", "en": "grape", "lv": 3}, {"w": "蓝", "py": "lán", "n": "lan2", "en": "blue; indigo plant", "lv": 3}, {"w": "虽然", "py": "suīrán", "n": "sui1ran2", "en": "although; even though…", "lv": 3}, {"w": "蛋糕", "py": "dàngāo", "n": "dan4gao1", "en": "cake", "lv": 3}, {"w": "行李箱", "py": "xínglixiāng", "n": "xing2li5xiang1", "en": "suitcase; baggage compartment", "lv": 3}, {"w": "街道", "py": "jiēdào", "n": "jie1dao4", "en": "street; subdistrict", "lv": 3}, {"w": "表演", "py": "biǎoyǎn", "n": "biao3yan3", "en": "play; show", "lv": 3}, {"w": "表示", "py": "biǎoshì", "n": "biao3shi4", "en": "to express; to show", "lv": 3}, {"w": "衬衫", "py": "chènshān", "n": "chen4shan1", "en": "shirt; blouse", "lv": 3}, {"w": "被", "py": "bèi", "n": "bei4", "en": "quilt; to cover (with)", "lv": 3}, {"w": "裙子", "py": "qúnzi", "n": "qun2zi5", "en": "skirt", "lv": 3}, {"w": "裤子", "py": "kùzi", "n": "ku4zi5", "en": "trousers; pants", "lv": 3}, {"w": "西", "py": "xī", "n": "xi1", "en": "west", "lv": 3}, {"w": "要求", "py": "yāoqiú", "n": "yao1qiu2", "en": "to request; to require", "lv": 3}, {"w": "见面", "py": "jiànmiàn", "n": "jian4mian4", "en": "to meet; to see each other", "lv": 3}, {"w": "角", "py": "jiǎo", "n": "jiao3", "en": "angle; corner", "lv": 3}, {"w": "解决", "py": "jiějué", "n": "jie3jue2", "en": "to solve; to resolve; to settle (a problem)", "lv": 3}, {"w": "认为", "py": "rènwéi", "n": "ren4wei2", "en": "to believe; to think; to consider; to feel", "lv": 3}, {"w": "认真", "py": "rènzhēn", "n": "ren4zhen1", "en": "conscientious; earnest", "lv": 3}, {"w": "记得", "py": "jìde", "n": "ji4de5", "en": "to remember", "lv": 3}, {"w": "讲", "py": "jiǎng", "n": "jiang3", "en": "to speak; to explain", "lv": 3}, {"w": "词语", "py": "cíyǔ", "n": "ci2yu3", "en": "word…", "lv": 3}, {"w": "超市", "py": "chāoshì", "n": "chao1shi4", "en": "supermarket (abbr. for 超级市场)", "lv": 3}, {"w": "越", "py": "yuè", "n": "yue4", "en": "to exceed; to climb over", "lv": 3}, {"w": "跟", "py": "gēn", "n": "gen1", "en": "heel; to follow closely", "lv": 3}, {"w": "辆", "py": "liàng", "n": "liang4", "en": "classifier for vehicles", "lv": 3}, {"w": "过去", "py": "guòqù", "n": "guo4qu4", "en": "(in the) past; former", "lv": 3}, {"w": "还是", "py": "háishi", "n": "hai2shi5", "en": "still (as before); had better", "lv": 3}, {"w": "迟到", "py": "chídào", "n": "chi2dao4", "en": "to arrive late", "lv": 3}, {"w": "选择", "py": "xuǎnzé", "n": "xuan3ze2", "en": "to select; to pick", "lv": 3}, {"w": "遇到", "py": "yùdào", "n": "yu4dao4", "en": "to meet; to run into; to come across", "lv": 3}, {"w": "邻居", "py": "línjū", "n": "lin2ju1", "en": "neighbor; next door", "lv": 3}, {"w": "重要", "py": "zhòngyào", "n": "zhong4yao4", "en": "important; significant", "lv": 3}, {"w": "铅笔", "py": "qiānbǐ", "n": "qian1bi3", "en": "(lead) pencil", "lv": 3}, {"w": "银行", "py": "yínháng", "n": "yin2hang2", "en": "bank", "lv": 3}, {"w": "锻炼", "py": "duànliàn", "n": "duan4lian4", "en": "to toughen; to temper", "lv": 3}, {"w": "阿姨", "py": "āyí", "n": "a1yi2", "en": "maternal aunt; step-mother", "lv": 3}, {"w": "附近", "py": "fùjìn", "n": "fu4jin4", "en": "nearby; neighboring; (in the) vicinity (of); neighborhood", "lv": 3}, {"w": "除了", "py": "chúle", "n": "chu2le5", "en": "besides; apart from (... also...)", "lv": 3}, {"w": "难", "py": "nán", "n": "nan2", "en": "difficult (to...); problem", "lv": 3}, {"w": "难过", "py": "nánguò", "n": "nan2guo4", "en": "to feel sad; to feel unwell", "lv": 3}, {"w": "需要", "py": "xūyào", "n": "xu1yao4", "en": "to need; to want; to demand; to require; needs", "lv": 3}, {"w": "面包", "py": "miànbāo", "n": "mian4bao1", "en": "bread", "lv": 3}, {"w": "面条", "py": "miàntiáo", "n": "mian4tiao2", "en": "noodles", "lv": 3}, {"w": "鞋", "py": "xié", "n": "xie2", "en": "shoe", "lv": 3}, {"w": "音乐", "py": "yīnyuè", "n": "yin1yue4", "en": "music", "lv": 3}, {"w": "饱", "py": "bǎo", "n": "bao3", "en": "to eat till full; satisfied", "lv": 3}, {"w": "饿", "py": "è", "n": "e4", "en": "to be hungry; hungry", "lv": 3}, {"w": "香蕉", "py": "xiāngjiāo", "n": "xiang1jiao1", "en": "banana", "lv": 3}, {"w": "马", "py": "mǎ", "n": "ma3", "en": "horse; horse or cavalry piece in Chinese chess", "lv": 3}, {"w": "马上", "py": "mǎshàng", "n": "ma3shang4", "en": "at once; right away", "lv": 3}, {"w": "骑", "py": "qí", "n": "qi2", "en": "to sit astride; to ride (a horse, bike etc)", "lv": 3}, {"w": "鸟", "py": "niǎo", "n": "niao3", "en": "bird", "lv": 3}, {"w": "黄", "py": "huáng", "n": "huang2", "en": "yellow; pornographic", "lv": 3}, {"w": "黑板", "py": "hēibǎn", "n": "hei1ban3", "en": "blackboard", "lv": 3}, {"w": "鼻子", "py": "bízi", "n": "bi2zi5", "en": "nose", "lv": 3}, {"w": "一切", "py": "yīqiè", "n": "yi1qie4", "en": "everything; every", "lv": 4}, {"w": "不仅", "py": "bùjǐn", "n": "bu4jin3", "en": "not just; not limited to", "lv": 4}, {"w": "不但", "py": "bùdàn", "n": "bu4dan4", "en": "not only (... but also ...)", "lv": 4}, {"w": "不得不", "py": "bùdébù", "n": "bu4de2bu4", "en": "have no choice or option but to; cannot but", "lv": 4}, {"w": "不管", "py": "bùguǎn", "n": "bu4guan3", "en": "not to be concerned; regardless of", "lv": 4}, {"w": "不过", "py": "bùguò", "n": "bu4guo4", "en": "only; merely", "lv": 4}, {"w": "与", "py": "yǔ", "n": "yu3", "en": "and; to give", "lv": 4}, {"w": "专业", "py": "zhuānyè", "n": "zhuan1ye4", "en": "specialty; specialized field", "lv": 4}, {"w": "专门", "py": "zhuānmén", "n": "zhuan1men2", "en": "specialist; specialized", "lv": 4}, {"w": "世纪", "py": "shìjì", "n": "shi4ji4", "en": "century", "lv": 4}, {"w": "丢", "py": "diū", "n": "diu1", "en": "to lose; to put aside", "lv": 4}, {"w": "严格", "py": "yángé", "n": "yan2ge2", "en": "strict; stringent", "lv": 4}, {"w": "严重", "py": "yánzhòng", "n": "yan2zhong4", "en": "grave; serious", "lv": 4}, {"w": "个子", "py": "gèzi", "n": "ge4zi5", "en": "height; stature", "lv": 4}, {"w": "中文", "py": "Zhōngwén", "n": "Zhong1wen2", "en": "Chinese language", "lv": 4}, {"w": "丰富", "py": "fēngfù", "n": "feng1fu4", "en": "to enrich; rich", "lv": 4}, {"w": "主动", "py": "zhǔdòng", "n": "zhu3dong4", "en": "to take the initiative; to do sth of one's own accord", "lv": 4}, {"w": "主意", "py": "zhǔyi", "n": "zhu3yi5", "en": "plan; idea", "lv": 4}, {"w": "举办", "py": "jǔbàn", "n": "ju3ban4", "en": "to conduct; to hold", "lv": 4}, {"w": "之", "py": "zhī", "n": "zhi1", "en": "(possessive particle, literary equivalent of 的); him", "lv": 4}, {"w": "乒乓球", "py": "pīngpāngqiú", "n": "ping1pang1qiu2", "en": "table tennis; ping-pong", "lv": 4}, {"w": "乘坐", "py": "chéngzuò", "n": "cheng2zuo4", "en": "to ride (in a vehicle)", "lv": 4}, {"w": "也许", "py": "yěxǔ", "n": "ye3xu3", "en": "perhaps; maybe", "lv": 4}, {"w": "乱", "py": "luàn", "n": "luan4", "en": "in confusion or disorder; in a confused state of mind", "lv": 4}, {"w": "于是", "py": "yúshì", "n": "yu2shi4", "en": "thereupon; as a result; consequently; thus; hence", "lv": 4}, {"w": "互相", "py": "hùxiāng", "n": "hu4xiang1", "en": "each other; mutually", "lv": 4}, {"w": "亚洲", "py": "Yàzhōu", "n": "Ya4zhou1", "en": "Asia (abbr. for 亚细亚洲)", "lv": 4}, {"w": "交", "py": "jiāo", "n": "jiao1", "en": "to hand over; to deliver", "lv": 4}, {"w": "交流", "py": "jiāoliú", "n": "jiao1liu2", "en": "to exchange; exchange", "lv": 4}, {"w": "交通", "py": "jiāotōng", "n": "jiao1tong1", "en": "to be connected; traffic", "lv": 4}, {"w": "京剧", "py": "Jīngjù", "n": "Jing1ju4", "en": "Beijing opera", "lv": 4}, {"w": "亮", "py": "liàng", "n": "liang4", "en": "bright; clear", "lv": 4}, {"w": "亲戚", "py": "qīnqi", "n": "qin1qi5", "en": "a relative (i.e. family relation)", "lv": 4}, {"w": "人民币", "py": "rénmínbì", "n": "ren2min2bi4", "en": "Renminbi (RMB); Chinese Yuan (CNY)", "lv": 4}, {"w": "亿", "py": "yì", "n": "yi4", "en": "100 million", "lv": 4}, {"w": "仍然", "py": "réngrán", "n": "reng2ran2", "en": "still; as before; yet", "lv": 4}, {"w": "从来", "py": "cónglái", "n": "cong2lai2", "en": "always; at all times", "lv": 4}, {"w": "仔细", "py": "zǐxì", "n": "zi3xi4", "en": "careful; attentive; cautious; to be careful; to look out", "lv": 4}, {"w": "代替", "py": "dàitì", "n": "dai4ti4", "en": "to replace; to take the place of", "lv": 4}, {"w": "代表", "py": "dàibiǎo", "n": "dai4biao3", "en": "representative; delegate", "lv": 4}, {"w": "以", "py": "yǐ", "n": "yi3", "en": "to use; by means of", "lv": 4}, {"w": "价格", "py": "jiàgé", "n": "jia4ge2", "en": "price", "lv": 4}, {"w": "任何", "py": "rènhé", "n": "ren4he2", "en": "any; whatever", "lv": 4}, {"w": "任务", "py": "rènwu", "n": "ren4wu5", "en": "mission; assignment; task; duty; role", "lv": 4}, {"w": "份", "py": "fèn", "n": "fen4", "en": "classifier for gifts, newspaper, magazine, papers…", "lv": 4}, {"w": "优点", "py": "yōudiǎn", "n": "you1dian3", "en": "merit; benefit", "lv": 4}, {"w": "优秀", "py": "yōuxiù", "n": "you1xiu4", "en": "outstanding; excellent", "lv": 4}, {"w": "传真", "py": "chuánzhēn", "n": "chuan2zhen1", "en": "fax; facsimile", "lv": 4}, {"w": "伤心", "py": "shāngxīn", "n": "shang1xin1", "en": "to grieve; to be broken-hearted", "lv": 4}, {"w": "估计", "py": "gūjì", "n": "gu1ji4", "en": "to estimate; to reckon", "lv": 4}, {"w": "作者", "py": "zuòzhě", "n": "zuo4zhe3", "en": "author; writer", "lv": 4}, {"w": "使用", "py": "shǐyòng", "n": "shi3yong4", "en": "to use; to employ", "lv": 4}, {"w": "例如", "py": "lìrú", "n": "li4ru2", "en": "for example; for instance; such as", "lv": 4}, {"w": "保护", "py": "bǎohù", "n": "bao3hu4", "en": "to protect; to defend", "lv": 4}, {"w": "保证", "py": "bǎozhèng", "n": "bao3zheng4", "en": "guarantee; to guarantee", "lv": 4}, {"w": "信任", "py": "xìnrèn", "n": "xin4ren4", "en": "to trust; to have confidence in", "lv": 4}, {"w": "信心", "py": "xìnxīn", "n": "xin4xin1", "en": "confidence; faith (in sb or sth)", "lv": 4}, {"w": "信用卡", "py": "xìnyòngkǎ", "n": "xin4yong4ka3", "en": "credit card", "lv": 4}, {"w": "俩", "py": "liǎ", "n": "lia3", "en": "two (colloquial equivalent of 两个); both", "lv": 4}, {"w": "修", "py": "xiū", "n": "xiu1", "en": "to decorate; to embellish", "lv": 4}, {"w": "倍", "py": "bèi", "n": "bei4", "en": "(two, three etc) -fold; times (multiplier)", "lv": 4}, {"w": "值得", "py": "zhíde", "n": "zhi2de5", "en": "to be worth; to deserve", "lv": 4}, {"w": "假", "py": "jiǎ", "n": "jia3", "en": "fake; false", "lv": 4}, {"w": "做生意", "py": "zuòshēngyì", "n": "zuo4sheng1yi4", "en": "to do business", "lv": 4}, {"w": "停止", "py": "tíngzhǐ", "n": "ting2zhi3", "en": "to stop; to halt; to cease", "lv": 4}, {"w": "偶尔", "py": "ǒu'ěr", "n": "ou3er3", "en": "occasionally; once in a while", "lv": 4}, {"w": "儿童", "py": "értóng", "n": "er2tong2", "en": "child", "lv": 4}, {"w": "允许", "py": "yǔnxǔ", "n": "yun3xu3", "en": "to permit; to allow", "lv": 4}, {"w": "光", "py": "guāng", "n": "guang1", "en": "light; ray; bright; shiny", "lv": 4}, {"w": "免费", "py": "miǎnfèi", "n": "mian3fei4", "en": "free (of charge)", "lv": 4}, {"w": "入口", "py": "rùkǒu", "n": "ru4kou3", "en": "entrance; to import", "lv": 4}, {"w": "全部", "py": "quánbù", "n": "quan2bu4", "en": "whole; all", "lv": 4}, {"w": "公里", "py": "gōnglǐ", "n": "gong1li3", "en": "kilometer", "lv": 4}, {"w": "共同", "py": "gòngtóng", "n": "gong4tong2", "en": "common; joint", "lv": 4}, {"w": "关键", "py": "guānjiàn", "n": "guan1jian4", "en": "crucial point; crux", "lv": 4}, {"w": "兴奋", "py": "xīngfèn", "n": "xing1fen4", "en": "excited; excitement", "lv": 4}, {"w": "其中", "py": "qízhōng", "n": "qi2zhong1", "en": "among; in", "lv": 4}, {"w": "其次", "py": "qícì", "n": "qi2ci4", "en": "next; secondly", "lv": 4}, {"w": "养成", "py": "yǎngchéng", "n": "yang3cheng2", "en": "to cultivate; to raise", "lv": 4}, {"w": "内", "py": "nèi", "n": "nei4", "en": "inside; inner", "lv": 4}, {"w": "内容", "py": "nèiróng", "n": "nei4rong2", "en": "content; substance", "lv": 4}, {"w": "农村", "py": "nóngcūn", "n": "nong2cun1", "en": "rural area; village", "lv": 4}, {"w": "冷静", "py": "lěngjìng", "n": "leng3jing4", "en": "calm; cool-headed; dispassionate", "lv": 4}, {"w": "准时", "py": "zhǔnshí", "n": "zhun3shi2", "en": "on time; punctual", "lv": 4}, {"w": "准确", "py": "zhǔnquè", "n": "zhun3que4", "en": "accurate; exact; precise", "lv": 4}, {"w": "凉快", "py": "liángkuai", "n": "liang2kuai5", "en": "nice and cold; pleasantly cool", "lv": 4}, {"w": "减少", "py": "jiǎnshǎo", "n": "jian3shao3", "en": "to lessen; to decrease; to reduce; to lower", "lv": 4}, {"w": "减肥", "py": "jiǎnféi", "n": "jian3fei2", "en": "to lose weight", "lv": 4}, {"w": "出发", "py": "chūfā", "n": "chu1fa1", "en": "to set off; to start (on a journey)", "lv": 4}, {"w": "出差", "py": "chūchāi", "n": "chu1chai1", "en": "to go on an official or business trip", "lv": 4}, {"w": "出生", "py": "chūshēng", "n": "chu1sheng1", "en": "to be born", "lv": 4}, {"w": "刀", "py": "dāo", "n": "dao1", "en": "knife; blade", "lv": 4}, {"w": "分之", "py": "fēnzhī", "n": "fen1zhi1", "en": "(indicating a fraction)", "lv": 4}, {"w": "刚刚", "py": "gānggang", "n": "gang1gang5", "en": "just recently; just a moment ago", "lv": 4}, {"w": "判断", "py": "pànduàn", "n": "pan4duan4", "en": "to judge; to determine", "lv": 4}, {"w": "到处", "py": "dàochù", "n": "dao4chu4", "en": "everywhere", "lv": 4}, {"w": "到底", "py": "dàodǐ", "n": "dao4di3", "en": "finally; in the end", "lv": 4}, {"w": "制造", "py": "zhìzào", "n": "zhi4zao4", "en": "to manufacture; to make", "lv": 4}, {"w": "剩", "py": "shèng", "n": "sheng4", "en": "to remain; to be left", "lv": 4}, {"w": "力气", "py": "lìqi", "n": "li4qi5", "en": "strength", "lv": 4}, {"w": "加油站", "py": "jiāyóuzhàn", "n": "jia1you2zhan4", "en": "gas station", "lv": 4}, {"w": "加班", "py": "jiābān", "n": "jia1ban1", "en": "to work overtime", "lv": 4}, {"w": "动作", "py": "dòngzuò", "n": "dong4zuo4", "en": "movement; motion; action; to act; to move", "lv": 4}, {"w": "勇敢", "py": "yǒnggǎn", "n": "yong3gan3", "en": "brave; courageous", "lv": 4}, {"w": "包括", "py": "bāokuò", "n": "bao1kuo4", "en": "to comprise; to include", "lv": 4}, {"w": "区别", "py": "qūbié", "n": "qu1bie2", "en": "difference; to distinguish", "lv": 4}, {"w": "十分", "py": "shífēn", "n": "shi2fen1", "en": "very; completely", "lv": 4}, {"w": "千万", "py": "qiānwàn", "n": "qian1wan4", "en": "ten million; countless", "lv": 4}, {"w": "博士", "py": "bóshì", "n": "bo2shi4", "en": "doctor; court academician (in feudal China)", "lv": 4}, {"w": "印象", "py": "yìnxiàng", "n": "yin4xiang4", "en": "impression (sth that stays in one's mind); a memory", "lv": 4}, {"w": "危险", "py": "wēixiǎn", "n": "wei1xian3", "en": "danger; dangerous", "lv": 4}, {"w": "即使", "py": "jíshǐ", "n": "ji2shi3", "en": "even if; even though", "lv": 4}, {"w": "却", "py": "què", "n": "que4", "en": "but; yet", "lv": 4}, {"w": "厉害", "py": "lìhai", "n": "li4hai5", "en": "used to describe sb or sth that makes a very strong…", "lv": 4}, {"w": "压力", "py": "yālì", "n": "ya1li4", "en": "pressure", "lv": 4}, {"w": "厚", "py": "hòu", "n": "hou4", "en": "thick; deep or profound", "lv": 4}, {"w": "原因", "py": "yuányīn", "n": "yuan2yin1", "en": "cause; origin", "lv": 4}, {"w": "原来", "py": "yuánlái", "n": "yuan2lai2", "en": "original; former", "lv": 4}, {"w": "原谅", "py": "yuánliàng", "n": "yuan2liang4", "en": "to excuse; to forgive", "lv": 4}, {"w": "参观", "py": "cānguān", "n": "can1guan1", "en": "to look around; to tour", "lv": 4}, {"w": "及时", "py": "jíshí", "n": "ji2shi2", "en": "timely; at the right time; promptly; without delay", "lv": 4}, {"w": "友好", "py": "yǒuhǎo", "n": "you3hao3", "en": "friendly; amicable; close friend", "lv": 4}, {"w": "友谊", "py": "yǒuyì", "n": "you3yi4", "en": "companionship; fellowship", "lv": 4}, {"w": "反对", "py": "fǎnduì", "n": "fan3dui4", "en": "to oppose; to be against; to object to", "lv": 4}, {"w": "反映", "py": "fǎnyìng", "n": "fan3ying4", "en": "to mirror; to reflect", "lv": 4}, {"w": "发", "py": "fā", "n": "fa1", "en": "to send out; to show (one's feeling)", "lv": 4}, {"w": "发展", "py": "fāzhǎn", "n": "fa1zhan3", "en": "development; growth", "lv": 4}, {"w": "发生", "py": "fāshēng", "n": "fa1sheng1", "en": "to happen; to occur; to take place; to break out", "lv": 4}, {"w": "取", "py": "qǔ", "n": "qu3", "en": "to take; to get", "lv": 4}, {"w": "受不了", "py": "shòubùliǎo", "n": "shou4bu4liao3", "en": "unbearable; unable to endure", "lv": 4}, {"w": "受到", "py": "shòudào", "n": "shou4dao4", "en": "to receive (praise, an education, punishment etc)", "lv": 4}, {"w": "另外", "py": "lìngwài", "n": "ling4wai4", "en": "additional; in addition", "lv": 4}, {"w": "只好", "py": "zhǐhǎo", "n": "zhi3hao3", "en": "to have no other option but to ...; to have to; to be…", "lv": 4}, {"w": "只要", "py": "zhǐyào", "n": "zhi3yao4", "en": "if only; so long as", "lv": 4}, {"w": "可怜", "py": "kělián", "n": "ke3lian2", "en": "pitiful; pathetic", "lv": 4}, {"w": "可惜", "py": "kěxī", "n": "ke3xi1", "en": "it is a pity; what a pity", "lv": 4}, {"w": "可是", "py": "kěshì", "n": "ke3shi4", "en": "but; however; (used for emphasis) indeed", "lv": 4}, {"w": "台", "py": "tái", "n": "tai2", "en": "platform; stage", "lv": 4}, {"w": "叶子", "py": "yèzi", "n": "ye4zi5", "en": "leaf; (slang) marijuana", "lv": 4}, {"w": "号码", "py": "hàomǎ", "n": "hao4ma3", "en": "number", "lv": 4}, {"w": "吃惊", "py": "chījīng", "n": "chi1jing1", "en": "to be startled; to be shocked", "lv": 4}, {"w": "各", "py": "gè", "n": "ge4", "en": "each; every", "lv": 4}, {"w": "合格", "py": "hégé", "n": "he2ge2", "en": "to meet the standard required; qualified", "lv": 4}, {"w": "合适", "py": "héshì", "n": "he2shi4", "en": "suitable; fitting", "lv": 4}, {"w": "同情", "py": "tóngqíng", "n": "tong2qing2", "en": "to sympathize with; sympathy", "lv": 4}, {"w": "后悔", "py": "hòuhuǐ", "n": "hou4hui3", "en": "to regret; to feel remorse", "lv": 4}, {"w": "后来", "py": "hòulái", "n": "hou4lai2", "en": "afterwards; later; newly arrived", "lv": 4}, {"w": "否则", "py": "fǒuzé", "n": "fou3ze2", "en": "otherwise; if not; or (else)", "lv": 4}, {"w": "吵", "py": "chǎo", "n": "chao3", "en": "to quarrel; to make a noise", "lv": 4}, {"w": "吸引", "py": "xīyǐn", "n": "xi1yin3", "en": "to attract; to appeal to; to fascinate", "lv": 4}, {"w": "呀", "py": "ya", "n": "ya5", "en": "particle equivalent to 啊 after a vowel, expressing…", "lv": 4}, {"w": "周围", "py": "zhōuwéi", "n": "zhou1wei2", "en": "environs; surroundings; periphery", "lv": 4}, {"w": "味道", "py": "wèidao", "n": "wei4dao5", "en": "flavor; taste", "lv": 4}, {"w": "咱们", "py": "zánmen", "n": "zan2men5", "en": "we or us…", "lv": 4}, {"w": "咳嗽", "py": "késou", "n": "ke2sou5", "en": "to cough", "lv": 4}, {"w": "咸", "py": "xián", "n": "xian2", "en": "all; everyone", "lv": 4}, {"w": "响", "py": "xiǎng", "n": "xiang3", "en": "echo; sound", "lv": 4}, {"w": "售货员", "py": "shòuhuòyuán", "n": "shou4huo4yuan2", "en": "salesperson", "lv": 4}, {"w": "商量", "py": "shāngliang", "n": "shang1liang5", "en": "to consult; to talk over", "lv": 4}, {"w": "嘴", "py": "zuǐ", "n": "zui3", "en": "mouth; beak", "lv": 4}, {"w": "回忆", "py": "huíyì", "n": "hui2yi4", "en": "to recall; memories", "lv": 4}, {"w": "因此", "py": "yīncǐ", "n": "yin1ci3", "en": "thus; consequently; as a result", "lv": 4}, {"w": "困", "py": "kùn", "n": "kun4", "en": "to trap; to surround", "lv": 4}, {"w": "困难", "py": "kùnnan", "n": "kun4nan5", "en": "difficult; challenging", "lv": 4}, {"w": "国际", "py": "guójì", "n": "guo2ji4", "en": "international", "lv": 4}, {"w": "圆", "py": "yuán", "n": "yuan2", "en": "circle; round", "lv": 4}, {"w": "地址", "py": "dìzhǐ", "n": "di4zhi3", "en": "address", "lv": 4}, {"w": "地球", "py": "dìqiú", "n": "di4qiu2", "en": "the earth", "lv": 4}, {"w": "场", "py": "chǎng", "n": "chang3", "en": "large place used for a specific purpose; stage", "lv": 4}, {"w": "坚持", "py": "jiānchí", "n": "jian1chi2", "en": "to persevere with; to persist in", "lv": 4}, {"w": "垃圾桶", "py": "lājītǒng", "n": "la1ji1tong3", "en": "rubbish bin; trash can", "lv": 4}, {"w": "基础", "py": "jīchǔ", "n": "ji1chu3", "en": "base; foundation; basis; basic; fundamental", "lv": 4}, {"w": "堵车", "py": "dǔchē", "n": "du3che1", "en": "traffic jam; (of traffic) to get congested", "lv": 4}, {"w": "塑料袋", "py": "sùliàodài", "n": "su4liao4dai4", "en": "plastic bag", "lv": 4}, {"w": "填空", "py": "tiánkòng", "n": "tian2kong4", "en": "to fill a job vacancy", "lv": 4}, {"w": "墙", "py": "qiáng", "n": "qiang2", "en": "wall", "lv": 4}, {"w": "增加", "py": "zēngjiā", "n": "zeng1jia1", "en": "to raise; to increase", "lv": 4}, {"w": "增长", "py": "zēngzhǎng", "n": "zeng1zhang3", "en": "to grow; to increase", "lv": 4}, {"w": "复印", "py": "fùyìn", "n": "fu4yin4", "en": "to photocopy; to duplicate a document", "lv": 4}, {"w": "复杂", "py": "fùzá", "n": "fu4za2", "en": "complicated; complex", "lv": 4}, {"w": "够", "py": "gòu", "n": "gou4", "en": "enough (sufficient); enough (too much)", "lv": 4}, {"w": "大使馆", "py": "dàshǐguǎn", "n": "da4shi3guan3", "en": "embassy", "lv": 4}, {"w": "大夫", "py": "dàifu", "n": "dai4fu5", "en": "doctor; physician", "lv": 4}, {"w": "大概", "py": "dàgài", "n": "da4gai4", "en": "roughly; probably", "lv": 4}, {"w": "大约", "py": "dàyuē", "n": "da4yue1", "en": "approximately; probably", "lv": 4}, {"w": "失望", "py": "shīwàng", "n": "shi1wang4", "en": "disappointed; to lose hope", "lv": 4}, {"w": "失败", "py": "shībài", "n": "shi1bai4", "en": "to be defeated; to lose", "lv": 4}, {"w": "奖金", "py": "jiǎngjīn", "n": "jiang3jin1", "en": "premium; award money", "lv": 4}, {"w": "好像", "py": "hǎoxiàng", "n": "hao3xiang4", "en": "as if; to seem like", "lv": 4}, {"w": "好处", "py": "hǎochu", "n": "hao3chu5", "en": "benefit; advantage; merit; gain; profit", "lv": 4}, {"w": "孙子", "py": "sūnzi", "n": "sun1zi5", "en": "grandson; son's son", "lv": 4}, {"w": "孤单", "py": "gūdān", "n": "gu1dan1", "en": "lone; lonely", "lv": 4}, {"w": "安全", "py": "ānquán", "n": "an1quan2", "en": "safe; secure; safety; security", "lv": 4}, {"w": "安排", "py": "ānpái", "n": "an1pai2", "en": "to arrange; to plan", "lv": 4}, {"w": "完全", "py": "wánquán", "n": "wan2quan2", "en": "complete; whole; totally; entirely", "lv": 4}, {"w": "实在", "py": "shízài", "n": "shi2zai4", "en": "really; actually", "lv": 4}, {"w": "实际", "py": "shíjì", "n": "shi2ji4", "en": "reality; practice", "lv": 4}, {"w": "害羞", "py": "hàixiū", "n": "hai4xiu1", "en": "shy; embarrassed", "lv": 4}, {"w": "家具", "py": "jiājù", "n": "jia1ju4", "en": "furniture", "lv": 4}, {"w": "宽", "py": "kuān", "n": "kuan1", "en": "wide; broad", "lv": 4}, {"w": "寄", "py": "jì", "n": "ji4", "en": "to send; to mail", "lv": 4}, {"w": "密码", "py": "mìmǎ", "n": "mi4ma3", "en": "cipher; secret code; password; PIN", "lv": 4}, {"w": "富", "py": "fù", "n": "fu4", "en": "rich; abundant", "lv": 4}, {"w": "寒假", "py": "hánjià", "n": "han2jia4", "en": "winter vacation", "lv": 4}, {"w": "对", "py": "duì", "n": "dui4", "en": "right; correct; towards; at; for", "lv": 4}, {"w": "对话", "py": "duìhuà", "n": "dui4hua4", "en": "to talk (with sb); dialogue; conversation", "lv": 4}, {"w": "对面", "py": "duìmiàn", "n": "dui4mian4", "en": "(sitting) opposite; across (the street)", "lv": 4}, {"w": "导游", "py": "dǎoyóu", "n": "dao3you2", "en": "tour guide; guidebook", "lv": 4}, {"w": "将来", "py": "jiānglái", "n": "jiang1lai2", "en": "in the future; future", "lv": 4}, {"w": "尊重", "py": "zūnzhòng", "n": "zun1zhong4", "en": "to esteem; to respect", "lv": 4}, {"w": "小说", "py": "xiǎoshuō", "n": "xiao3shuo1", "en": "novel; fiction", "lv": 4}, {"w": "尝", "py": "cháng", "n": "chang2", "en": "to taste; to try (food); to experience", "lv": 4}, {"w": "尤其", "py": "yóuqí", "n": "you2qi2", "en": "especially; particularly", "lv": 4}, {"w": "尽管", "py": "jǐnguǎn", "n": "jin3guan3", "en": "despite; although", "lv": 4}, {"w": "工具", "py": "gōngjù", "n": "gong1ju4", "en": "tool; instrument", "lv": 4}, {"w": "工资", "py": "gōngzī", "n": "gong1zi1", "en": "wages; pay", "lv": 4}, {"w": "巧克力", "py": "qiǎokèlì", "n": "qiao3ke4li4", "en": "chocolate (loanword)", "lv": 4}, {"w": "差不多", "py": "chàbuduō", "n": "cha4bu5duo1", "en": "almost; nearly", "lv": 4}, {"w": "市场", "py": "shìchǎng", "n": "shi4chang3", "en": "marketplace; market (also in abstract)", "lv": 4}, {"w": "帅", "py": "shuài", "n": "shuai4", "en": "handsome; graceful; dashing; elegant; (coll.) cool!; sweet!", "lv": 4}, {"w": "师傅", "py": "shīfu", "n": "shi1fu5", "en": "master; qualified worker", "lv": 4}, {"w": "干", "py": "gàn", "n": "gan4", "en": "tree trunk; main part of sth", "lv": 4}, {"w": "干杯", "py": "gānbēi", "n": "gan1bei1", "en": "to drink a toast; Cheers! (proposing a toast)", "lv": 4}, {"w": "干燥", "py": "gānzào", "n": "gan1zao4", "en": "to dry (of weather, paint, cement etc); desiccation", "lv": 4}, {"w": "平时", "py": "píngshí", "n": "ping2shi2", "en": "ordinarily; in normal times", "lv": 4}, {"w": "年龄", "py": "niánlíng", "n": "nian2ling2", "en": "(a person's) age", "lv": 4}, {"w": "并且", "py": "bìngqiě", "n": "bing4qie3", "en": "and; besides", "lv": 4}, {"w": "幸福", "py": "xìngfú", "n": "xing4fu2", "en": "happiness; happy", "lv": 4}, {"w": "幽默", "py": "yōumò", "n": "you1mo4", "en": "(loanword) humor; humorous", "lv": 4}, {"w": "广告", "py": "guǎnggào", "n": "guang3gao4", "en": "to advertise; a commercial", "lv": 4}, {"w": "广播", "py": "guǎngbō", "n": "guang3bo1", "en": "broadcast; broadcasting", "lv": 4}, {"w": "底", "py": "dǐ", "n": "di3", "en": "background; bottom", "lv": 4}, {"w": "座", "py": "zuò", "n": "zuo4", "en": "seat; base", "lv": 4}, {"w": "座位", "py": "zuòwèi", "n": "zuo4wei4", "en": "seat", "lv": 4}, {"w": "开玩笑", "py": "kāiwánxiào", "n": "kai1wan2xiao4", "en": "to play a joke; to make fun of", "lv": 4}, {"w": "弄", "py": "nòng", "n": "nong4", "en": "to do; to manage", "lv": 4}, {"w": "引起", "py": "yǐnqǐ", "n": "yin3qi3", "en": "to give rise to; to lead to; to cause; to arouse", "lv": 4}, {"w": "弹", "py": "tán", "n": "tan2", "en": "to pluck (a string); to play (a string instrument)", "lv": 4}, {"w": "当", "py": "dāng", "n": "dang1", "en": "to be; to act as", "lv": 4}, {"w": "当地", "py": "dāngdì", "n": "dang1di4", "en": "local", "lv": 4}, {"w": "当时", "py": "dāngshí", "n": "dang1shi2", "en": "then; at that time", "lv": 4}, {"w": "往", "py": "wǎng", "n": "wang3", "en": "to go (in a direction); to", "lv": 4}, {"w": "往往", "py": "wǎngwǎng", "n": "wang3wang3", "en": "usually; in many cases", "lv": 4}, {"w": "律师", "py": "lǜshī", "n": "lü4shi1", "en": "lawyer", "lv": 4}, {"w": "得意", "py": "déyì", "n": "de2yi4", "en": "proud of oneself; pleased with oneself", "lv": 4}, {"w": "心情", "py": "xīnqíng", "n": "xin1qing2", "en": "mood; frame of mind", "lv": 4}, {"w": "忽然", "py": "hūrán", "n": "hu1ran2", "en": "suddenly; all of a sudden", "lv": 4}, {"w": "怀疑", "py": "huáiyí", "n": "huai2yi2", "en": "to doubt (sth); to be skeptical of", "lv": 4}, {"w": "态度", "py": "tàidu", "n": "tai4du5", "en": "manner; bearing", "lv": 4}, {"w": "性别", "py": "xìngbié", "n": "xing4bie2", "en": "gender; sex", "lv": 4}, {"w": "性格", "py": "xìnggé", "n": "xing4ge2", "en": "nature; disposition", "lv": 4}, {"w": "总结", "py": "zǒngjié", "n": "zong3jie2", "en": "to sum up; to conclude", "lv": 4}, {"w": "恐怕", "py": "kǒngpà", "n": "kong3pa4", "en": "fear; to dread", "lv": 4}, {"w": "情况", "py": "qíngkuàng", "n": "qing2kuang4", "en": "circumstances; state of affairs; situation", "lv": 4}, {"w": "愉快", "py": "yúkuài", "n": "yu2kuai4", "en": "cheerful; cheerily", "lv": 4}, {"w": "意见", "py": "yìjiàn", "n": "yi4jian4", "en": "idea; opinion", "lv": 4}, {"w": "感动", "py": "gǎndòng", "n": "gan3dong4", "en": "to move (sb); to touch (sb emotionally)", "lv": 4}, {"w": "感情", "py": "gǎnqíng", "n": "gan3qing2", "en": "emotion; sentiment", "lv": 4}, {"w": "感觉", "py": "gǎnjué", "n": "gan3jue2", "en": "feeling; impression; sensation; to feel; to perceive", "lv": 4}, {"w": "感谢", "py": "gǎnxiè", "n": "gan3xie4", "en": "(express) thanks; gratitude", "lv": 4}, {"w": "懒", "py": "lǎn", "n": "lan3", "en": "lazy", "lv": 4}, {"w": "成为", "py": "chéngwéi", "n": "cheng2wei2", "en": "to become; to turn into", "lv": 4}, {"w": "成功", "py": "chénggōng", "n": "cheng2gong1", "en": "success; to succeed", "lv": 4}, {"w": "成熟", "py": "chéngshú", "n": "cheng2shu2", "en": "mature; ripe; to mature; to ripen", "lv": 4}, {"w": "戴", "py": "dài", "n": "dai4", "en": "to put on or wear (glasses, hat, gloves etc); to respect", "lv": 4}, {"w": "所有", "py": "suǒyǒu", "n": "suo3you3", "en": "all; to have; to possess; to own", "lv": 4}, {"w": "打印", "py": "dǎyìn", "n": "da3yin4", "en": "to affix a seal; to stamp", "lv": 4}, {"w": "打扮", "py": "dǎban", "n": "da3ban5", "en": "to decorate; to dress", "lv": 4}, {"w": "打扰", "py": "dǎrǎo", "n": "da3rao3", "en": "to disturb; to bother", "lv": 4}, {"w": "打折", "py": "dǎzhé", "n": "da3zhe2", "en": "to give a discount", "lv": 4}, {"w": "打针", "py": "dǎzhēn", "n": "da3zhen1", "en": "to give or have an injection", "lv": 4}, {"w": "扔", "py": "rēng", "n": "reng1", "en": "to throw; to throw away", "lv": 4}, {"w": "扩大", "py": "kuòdà", "n": "kuo4da4", "en": "to expand; to enlarge", "lv": 4}, {"w": "批评", "py": "pīpíng", "n": "pi1ping2", "en": "to criticize; criticism", "lv": 4}, {"w": "技术", "py": "jìshù", "n": "ji4shu4", "en": "technology; technique; skill", "lv": 4}, {"w": "护士", "py": "hùshi", "n": "hu4shi5", "en": "nurse", "lv": 4}, {"w": "报名", "py": "bàomíng", "n": "bao4ming2", "en": "to sign up; to enter one's name", "lv": 4}, {"w": "报道", "py": "bàodào", "n": "bao4dao4", "en": "to report (news); report", "lv": 4}, {"w": "抬", "py": "tái", "n": "tai2", "en": "to lift; to raise", "lv": 4}, {"w": "抱", "py": "bào", "n": "bao4", "en": "to hold; to carry (in one's arms)", "lv": 4}, {"w": "抱歉", "py": "bàoqiàn", "n": "bao4qian4", "en": "to be sorry; to feel apologetic", "lv": 4}, {"w": "抽烟", "py": "chōuyān", "n": "chou1yan1", "en": "to smoke (a cigarette, tobacco)", "lv": 4}, {"w": "拉", "py": "lā", "n": "la1", "en": "to pull; to play (a bowed instrument)", "lv": 4}, {"w": "拒绝", "py": "jùjué", "n": "ju4jue2", "en": "to refuse; to decline; to reject", "lv": 4}, {"w": "招聘", "py": "zhāopìn", "n": "zhao1pin4", "en": "to invite applications for a job; to recruit", "lv": 4}, {"w": "挂", "py": "guà", "n": "gua4", "en": "to hang or suspend (from a hook etc); to hang up (the phone)", "lv": 4}, {"w": "指", "py": "zhǐ", "n": "zhi3", "en": "finger; to point at or to", "lv": 4}, {"w": "按时", "py": "ànshí", "n": "an4shi2", "en": "on time; before deadline", "lv": 4}, {"w": "按照", "py": "ànzhào", "n": "an4zhao4", "en": "according to; in accordance with", "lv": 4}, {"w": "挺", "py": "tǐng", "n": "ting3", "en": "straight; erect", "lv": 4}, {"w": "掉", "py": "diào", "n": "diao4", "en": "to fall; to drop", "lv": 4}, {"w": "排列", "py": "páiliè", "n": "pai2lie4", "en": "to arrange in order; (math.) permutation", "lv": 4}, {"w": "接受", "py": "jiēshòu", "n": "jie1shou4", "en": "to accept; to receive", "lv": 4}, {"w": "推", "py": "tuī", "n": "tui1", "en": "to push; to cut", "lv": 4}, {"w": "推迟", "py": "tuīchí", "n": "tui1chi2", "en": "to postpone; to put off", "lv": 4}, {"w": "提供", "py": "tígōng", "n": "ti2gong1", "en": "to offer; to supply", "lv": 4}, {"w": "提前", "py": "tíqián", "n": "ti2qian2", "en": "to shift to an earlier date; to do sth ahead of time", "lv": 4}, {"w": "提醒", "py": "tíxǐng", "n": "ti2xing3", "en": "to remind; to call attention to", "lv": 4}, {"w": "握手", "py": "wòshǒu", "n": "wo4shou3", "en": "to shake hands", "lv": 4}, {"w": "撞", "py": "zhuàng", "n": "zhuang4", "en": "to knock against; to bump into", "lv": 4}, {"w": "擦", "py": "cā", "n": "ca1", "en": "to rub; to scratch; to towel; to wipe with a towel", "lv": 4}, {"w": "支持", "py": "zhīchí", "n": "zhi1chi2", "en": "to be in favor of; to support", "lv": 4}, {"w": "收", "py": "shōu", "n": "shou1", "en": "to receive; to accept", "lv": 4}, {"w": "收入", "py": "shōurù", "n": "shou1ru4", "en": "to take in; income", "lv": 4}, {"w": "收拾", "py": "shōushi", "n": "shou1shi5", "en": "to put in order; to tidy up", "lv": 4}, {"w": "改变", "py": "gǎibiàn", "n": "gai3bian4", "en": "to change; to alter", "lv": 4}, {"w": "放弃", "py": "fàngqì", "n": "fang4qi4", "en": "to renounce; to abandon; to give up", "lv": 4}, {"w": "放暑假", "py": "fàngshǔjià", "n": "fang4shu3jia4", "en": "to be on summer vacation", "lv": 4}, {"w": "故意", "py": "gùyì", "n": "gu4yi4", "en": "deliberately; on purpose", "lv": 4}, {"w": "效果", "py": "xiàoguǒ", "n": "xiao4guo3", "en": "result; effect", "lv": 4}, {"w": "教授", "py": "jiàoshòu", "n": "jiao4shou4", "en": "professor; to instruct", "lv": 4}, {"w": "教育", "py": "jiàoyù", "n": "jiao4yu4", "en": "to educate; to teach", "lv": 4}, {"w": "散步", "py": "sànbù", "n": "san4bu4", "en": "to take a walk; to go for a walk", "lv": 4}, {"w": "数字", "py": "shùzì", "n": "shu4zi4", "en": "numeral; digit", "lv": 4}, {"w": "数量", "py": "shùliàng", "n": "shu4liang4", "en": "amount; quantity", "lv": 4}, {"w": "敲", "py": "qiāo", "n": "qiao1", "en": "to hit; to strike", "lv": 4}, {"w": "整理", "py": "zhěnglǐ", "n": "zheng3li3", "en": "to arrange; to tidy up", "lv": 4}, {"w": "整齐", "py": "zhěngqí", "n": "zheng3qi2", "en": "orderly; neat", "lv": 4}, {"w": "文章", "py": "wénzhāng", "n": "wen2zhang1", "en": "article; essay", "lv": 4}, {"w": "断", "py": "duàn", "n": "duan4", "en": "to break; to snap", "lv": 4}, {"w": "方向", "py": "fāngxiàng", "n": "fang1xiang4", "en": "direction; orientation", "lv": 4}, {"w": "方法", "py": "fāngfǎ", "n": "fang1fa3", "en": "method; way", "lv": 4}, {"w": "方面", "py": "fāngmiàn", "n": "fang1mian4", "en": "respect; aspect", "lv": 4}, {"w": "无", "py": "wú", "n": "wu2", "en": "not to have; no", "lv": 4}, {"w": "无聊", "py": "wúliáo", "n": "wu2liao2", "en": "bored; boring", "lv": 4}, {"w": "无论", "py": "wúlùn", "n": "wu2lun4", "en": "no matter what or how; regardless of whether...", "lv": 4}, {"w": "既然", "py": "jìrán", "n": "ji4ran2", "en": "since; as", "lv": 4}, {"w": "日记", "py": "rìjì", "n": "ri4ji4", "en": "diary", "lv": 4}, {"w": "普遍", "py": "pǔbiàn", "n": "pu3bian4", "en": "universal; general", "lv": 4}, {"w": "暂时", "py": "zànshí", "n": "zan4shi2", "en": "temporary; provisional", "lv": 4}, {"w": "暖和", "py": "nuǎnhuo", "n": "nuan3huo5", "en": "warm; nice and warm", "lv": 4}, {"w": "暗", "py": "àn", "n": "an4", "en": "dark; to turn dark", "lv": 4}, {"w": "最后", "py": "zuìhòu", "n": "zui4hou4", "en": "final; last", "lv": 4}, {"w": "最好", "py": "zuìhǎo", "n": "zui4hao3", "en": "best; (you) had better (do what we suggest)", "lv": 4}, {"w": "有趣", "py": "yǒuqù", "n": "you3qu4", "en": "interesting; fascinating", "lv": 4}, {"w": "本来", "py": "běnlái", "n": "ben3lai2", "en": "original; originally", "lv": 4}, {"w": "朵", "py": "duǒ", "n": "duo3", "en": "flower; earlobe", "lv": 4}, {"w": "杂志", "py": "zázhì", "n": "za2zhi4", "en": "magazine", "lv": 4}, {"w": "材料", "py": "cáiliào", "n": "cai2liao4", "en": "(raw) material; data", "lv": 4}, {"w": "条件", "py": "tiáojiàn", "n": "tiao2jian4", "en": "condition; circumstance; term; factor", "lv": 4}, {"w": "来不及", "py": "láibují", "n": "lai2bu5ji2", "en": "there's not enough time (to do sth)", "lv": 4}, {"w": "来得及", "py": "láidejí", "n": "lai2de5ji2", "en": "to have enough time; can do it in time; can still make it", "lv": 4}, {"w": "极其", "py": "jíqí", "n": "ji2qi2", "en": "extremely", "lv": 4}, {"w": "果然", "py": "guǒrán", "n": "guo3ran2", "en": "really; sure enough", "lv": 4}, {"w": "标准", "py": "biāozhǔn", "n": "biao1zhun3", "en": "standard; norm; criterion; (adjective) standard", "lv": 4}, {"w": "样子", "py": "yàngzi", "n": "yang4zi5", "en": "appearance; manner", "lv": 4}, {"w": "桥", "py": "qiáo", "n": "qiao2", "en": "bridge", "lv": 4}, {"w": "梦", "py": "mèng", "n": "meng4", "en": "dream; (bound form) to dream", "lv": 4}, {"w": "森林", "py": "sēnlín", "n": "sen1lin2", "en": "forest", "lv": 4}, {"w": "棵", "py": "kē", "n": "ke1", "en": "classifier for trees, cabbages, plants etc", "lv": 4}, {"w": "植物", "py": "zhíwù", "n": "zhi2wu4", "en": "plant; vegetation", "lv": 4}, {"w": "正好", "py": "zhènghǎo", "n": "zheng4hao3", "en": "just (in time); just right", "lv": 4}, {"w": "正常", "py": "zhèngcháng", "n": "zheng4chang2", "en": "regular; normal", "lv": 4}, {"w": "正式", "py": "zhèngshì", "n": "zheng4shi4", "en": "formal; official", "lv": 4}, {"w": "正确", "py": "zhèngquè", "n": "zheng4que4", "en": "correct; sound; right; proper", "lv": 4}, {"w": "死", "py": "sǐ", "n": "si3", "en": "to die; impassable", "lv": 4}, {"w": "母亲", "py": "mǔqīn", "n": "mu3qin1", "en": "mother; also pr. [mǔ qin]", "lv": 4}, {"w": "毕业", "py": "bìyè", "n": "bi4ye4", "en": "graduation; to graduate", "lv": 4}, {"w": "毛巾", "py": "máojīn", "n": "mao2jin1", "en": "towel", "lv": 4}, {"w": "民族", "py": "mínzú", "n": "min2zu2", "en": "nationality; ethnic group", "lv": 4}, {"w": "气候", "py": "qìhòu", "n": "qi4hou4", "en": "(meteorology) climate", "lv": 4}, {"w": "永远", "py": "yǒngyuǎn", "n": "yong3yuan3", "en": "forever; eternal", "lv": 4}, {"w": "汗", "py": "hàn", "n": "han4", "en": "perspiration; sweat", "lv": 4}, {"w": "污染", "py": "wūrǎn", "n": "wu1ran3", "en": "to pollute; to contaminate (lit. and fig.)", "lv": 4}, {"w": "汤", "py": "tāng", "n": "tang1", "en": "soup; hot or boiling water", "lv": 4}, {"w": "沙发", "py": "shāfā", "n": "sha1fa1", "en": "sofa (loanword)", "lv": 4}, {"w": "法律", "py": "fǎlǜ", "n": "fa3lü4", "en": "law", "lv": 4}, {"w": "洗衣机", "py": "xǐyījī", "n": "xi3yi1ji1", "en": "washing machine; washer", "lv": 4}, {"w": "活动", "py": "huódòng", "n": "huo2dong4", "en": "to exercise; to move about", "lv": 4}, {"w": "活泼", "py": "huópo", "n": "huo2po5", "en": "lively; vivacious", "lv": 4}, {"w": "流利", "py": "liúlì", "n": "liu2li4", "en": "fluent", "lv": 4}, {"w": "流泪", "py": "liúlèi", "n": "liu2lei4", "en": "to shed tears", "lv": 4}, {"w": "流行", "py": "liúxíng", "n": "liu2xing2", "en": "(of a contagious disease etc) to spread; to propagate", "lv": 4}, {"w": "浪漫", "py": "làngmàn", "n": "lang4man4", "en": "romantic", "lv": 4}, {"w": "浪费", "py": "làngfèi", "n": "lang4fei4", "en": "to waste; to squander", "lv": 4}, {"w": "海洋", "py": "hǎiyáng", "n": "hai3yang2", "en": "ocean", "lv": 4}, {"w": "消息", "py": "xiāoxi", "n": "xiao1xi5", "en": "news; information", "lv": 4}, {"w": "深", "py": "shēn", "n": "shen1", "en": "deep (lit. and fig.)", "lv": 4}, {"w": "温度", "py": "wēndù", "n": "wen1du4", "en": "temperature", "lv": 4}, {"w": "湿润", "py": "shīrùn", "n": "shi1run4", "en": "moist", "lv": 4}, {"w": "满", "py": "mǎn", "n": "man3", "en": "to fill; full", "lv": 4}, {"w": "演出", "py": "yǎnchū", "n": "yan3chu1", "en": "to act (in a play); to perform", "lv": 4}, {"w": "演员", "py": "yǎnyuán", "n": "yan3yuan2", "en": "actor or actress; performer", "lv": 4}, {"w": "激动", "py": "jīdòng", "n": "ji1dong4", "en": "to move emotionally; to stir up (emotions)", "lv": 4}, {"w": "火", "py": "huǒ", "n": "huo3", "en": "fire; urgent", "lv": 4}, {"w": "烦恼", "py": "fánnǎo", "n": "fan2nao3", "en": "to be worried; to be distressed", "lv": 4}, {"w": "热闹", "py": "rènao", "n": "re4nao5", "en": "bustling with noise and excitement; lively", "lv": 4}, {"w": "然而", "py": "rán'ér", "n": "ran2er2", "en": "however; yet; but", "lv": 4}, {"w": "熟悉", "py": "shúxī", "n": "shu2xi1", "en": "to be familiar with; to know well", "lv": 4}, {"w": "爱情", "py": "àiqíng", "n": "ai4qing2", "en": "romance; love (romantic)", "lv": 4}, {"w": "父亲", "py": "fùqīn", "n": "fu4qin1", "en": "father; also pr. [fù qin]", "lv": 4}, {"w": "牙膏", "py": "yágāo", "n": "ya2gao1", "en": "toothpaste", "lv": 4}, {"w": "特点", "py": "tèdiǎn", "n": "te4dian3", "en": "characteristic (feature); trait", "lv": 4}, {"w": "狮子", "py": "shīzi", "n": "shi1zi5", "en": "lion", "lv": 4}, {"w": "猜", "py": "cāi", "n": "cai1", "en": "to guess", "lv": 4}, {"w": "猪", "py": "zhū", "n": "zhu1", "en": "hog; pig", "lv": 4}, {"w": "猴子", "py": "hóuzi", "n": "hou2zi5", "en": "monkey", "lv": 4}, {"w": "现代", "py": "xiàndài", "n": "xian4dai4", "en": "modern times; modern age", "lv": 4}, {"w": "理发", "py": "lǐfà", "n": "li3fa4", "en": "to get a haircut; to have one's hair done", "lv": 4}, {"w": "理想", "py": "lǐxiǎng", "n": "li3xiang3", "en": "an ideal; a dream", "lv": 4}, {"w": "理解", "py": "lǐjiě", "n": "li3jie3", "en": "to comprehend; to understand", "lv": 4}, {"w": "瓶子", "py": "píngzi", "n": "ping2zi5", "en": "bottle", "lv": 4}, {"w": "甚至", "py": "shènzhì", "n": "shen4zhi4", "en": "even; so much so that", "lv": 4}, {"w": "生命", "py": "shēngmìng", "n": "sheng1ming4", "en": "life (as the characteristic of living beings)", "lv": 4}, {"w": "生活", "py": "shēnghuó", "n": "sheng1huo2", "en": "to live; life", "lv": 4}, {"w": "由", "py": "yóu", "n": "you2", "en": "to follow; from", "lv": 4}, {"w": "由于", "py": "yóuyú", "n": "you2yu2", "en": "due to; as a result of", "lv": 4}, {"w": "申请", "py": "shēnqǐng", "n": "shen1qing3", "en": "to apply for sth; application form", "lv": 4}, {"w": "留", "py": "liú", "n": "liu2", "en": "to leave (a message etc); to retain", "lv": 4}, {"w": "留学", "py": "liúxué", "n": "liu2xue2", "en": "to study abroad", "lv": 4}, {"w": "皮肤", "py": "pífū", "n": "pi2fu1", "en": "skin", "lv": 4}, {"w": "盐", "py": "yán", "n": "yan2", "en": "salt", "lv": 4}, {"w": "盒子", "py": "hézi", "n": "he2zi5", "en": "box; case", "lv": 4}, {"w": "目的", "py": "mùdì", "n": "mu4di4", "en": "purpose; aim; goal; target; objective", "lv": 4}, {"w": "直接", "py": "zhíjiē", "n": "zhi2jie1", "en": "direct (opposite: indirect 间接); immediate", "lv": 4}, {"w": "相反", "py": "xiāngfǎn", "n": "xiang1fan3", "en": "opposite; contrary", "lv": 4}, {"w": "省", "py": "shěng", "n": "sheng3", "en": "to save; to economize; to be frugal", "lv": 4}, {"w": "看法", "py": "kànfǎ", "n": "kan4fa3", "en": "way of looking at a thing; view", "lv": 4}, {"w": "真正", "py": "zhēnzhèng", "n": "zhen1zheng4", "en": "genuine; real; true; really; indeed", "lv": 4}, {"w": "知识", "py": "zhīshi", "n": "zhi1shi5", "en": "knowledge; intellectual", "lv": 4}, {"w": "研究生", "py": "yánjiūshēng", "n": "yan2jiu1sheng1", "en": "graduate student; postgraduate student", "lv": 4}, {"w": "破", "py": "pò", "n": "po4", "en": "broken; damaged", "lv": 4}, {"w": "硕士", "py": "shuòshì", "n": "shuo4shi4", "en": "master's degree; person who has a master's degree", "lv": 4}, {"w": "硬", "py": "yìng", "n": "ying4", "en": "hard; stiff; solid; (fig.) strong; firm", "lv": 4}, {"w": "确实", "py": "quèshí", "n": "que4shi2", "en": "indeed; really", "lv": 4}, {"w": "礼貌", "py": "lǐmào", "n": "li3mao4", "en": "courtesy; politeness; manners; courteous; polite", "lv": 4}, {"w": "社会", "py": "shèhuì", "n": "she4hui4", "en": "society", "lv": 4}, {"w": "祝贺", "py": "zhùhè", "n": "zhu4he4", "en": "to congratulate; congratulations", "lv": 4}, {"w": "禁止", "py": "jìnzhǐ", "n": "jin4zhi3", "en": "to prohibit; to forbid", "lv": 4}, {"w": "科学", "py": "kēxué", "n": "ke1xue2", "en": "science; scientific knowledge", "lv": 4}, {"w": "租", "py": "zū", "n": "zu1", "en": "to hire; to rent", "lv": 4}, {"w": "积极", "py": "jījí", "n": "ji1ji2", "en": "active; energetic", "lv": 4}, {"w": "积累", "py": "jīlěi", "n": "ji1lei3", "en": "to accumulate; accumulation", "lv": 4}, {"w": "稍微", "py": "shāowēi", "n": "shao1wei1", "en": "a little bit", "lv": 4}, {"w": "究竟", "py": "jiūjìng", "n": "jiu1jing4", "en": "to go to the bottom of a matter; after all", "lv": 4}, {"w": "穷", "py": "qióng", "n": "qiong2", "en": "poor; destitute", "lv": 4}, {"w": "空气", "py": "kōngqì", "n": "kong1qi4", "en": "air; atmosphere", "lv": 4}, {"w": "窄", "py": "zhǎi", "n": "zhai3", "en": "narrow; narrow-minded", "lv": 4}, {"w": "窗户", "py": "chuānghu", "n": "chuang1hu5", "en": "window", "lv": 4}, {"w": "竞争", "py": "jìngzhēng", "n": "jing4zheng1", "en": "to compete; competition", "lv": 4}, {"w": "竟然", "py": "jìngrán", "n": "jing4ran2", "en": "unexpectedly; to one's surprise", "lv": 4}, {"w": "笑话", "py": "xiàohua", "n": "xiao4hua5", "en": "joke; jest; to laugh at; to mock", "lv": 4}, {"w": "笔记本", "py": "bǐjìběn", "n": "bi3ji4ben3", "en": "notebook (stationery); notebook (computing)", "lv": 4}, {"w": "符合", "py": "fúhé", "n": "fu2he2", "en": "in keeping with; in accordance with", "lv": 4}, {"w": "笨", "py": "bèn", "n": "ben4", "en": "stupid; foolish", "lv": 4}, {"w": "等", "py": "děng", "n": "deng3", "en": "class; rank", "lv": 4}, {"w": "答案", "py": "dá'àn", "n": "da2an4", "en": "answer; solution", "lv": 4}, {"w": "签证", "py": "qiānzhèng", "n": "qian1zheng4", "en": "visa; to issue a visa", "lv": 4}, {"w": "算", "py": "suàn", "n": "suan4", "en": "to regard as; to figure", "lv": 4}, {"w": "管理", "py": "guǎnlǐ", "n": "guan3li3", "en": "to supervise; to manage", "lv": 4}, {"w": "篇", "py": "piān", "n": "pian1", "en": "sheet; piece of writing", "lv": 4}, {"w": "粗心", "py": "cūxīn", "n": "cu1xin1", "en": "careless; thoughtless", "lv": 4}, {"w": "精彩", "py": "jīngcǎi", "n": "jing1cai3", "en": "wonderful; marvelous", "lv": 4}, {"w": "精神", "py": "jīngshén", "n": "jing1shen2", "en": "spirit; mind", "lv": 4}, {"w": "紧张", "py": "jǐnzhāng", "n": "jin3zhang1", "en": "nervous; keyed up", "lv": 4}, {"w": "约会", "py": "yuēhuì", "n": "yue1hui4", "en": "appointment; engagement", "lv": 4}, {"w": "组成", "py": "zǔchéng", "n": "zu3cheng2", "en": "to form; to make up", "lv": 4}, {"w": "组织", "py": "zǔzhī", "n": "zu3zhi1", "en": "to organize; organization", "lv": 4}, {"w": "经历", "py": "jīnglì", "n": "jing1li4", "en": "experience; to experience", "lv": 4}, {"w": "经济", "py": "jīngjì", "n": "jing1ji4", "en": "economy; economic", "lv": 4}, {"w": "经验", "py": "jīngyàn", "n": "jing1yan4", "en": "experience; to experience", "lv": 4}, {"w": "结果", "py": "jiéguǒ", "n": "jie2guo3", "en": "outcome; result", "lv": 4}, {"w": "继续", "py": "jìxù", "n": "ji4xu4", "en": "to continue; to proceed with", "lv": 4}, {"w": "缺少", "py": "quēshǎo", "n": "que1shao3", "en": "lack; shortage of", "lv": 4}, {"w": "缺点", "py": "quēdiǎn", "n": "que1dian3", "en": "weak point; fault", "lv": 4}, {"w": "网球", "py": "wǎngqiú", "n": "wang3qiu2", "en": "tennis; tennis ball", "lv": 4}, {"w": "网站", "py": "wǎngzhàn", "n": "wang3zhan4", "en": "website; network station", "lv": 4}, {"w": "美丽", "py": "měilì", "n": "mei3li4", "en": "beautiful", "lv": 4}, {"w": "羡慕", "py": "xiànmù", "n": "xian4mu4", "en": "to envy; to admire", "lv": 4}, {"w": "群", "py": "qún", "n": "qun2", "en": "group; crowd", "lv": 4}, {"w": "羽毛球", "py": "yǔmáoqiú", "n": "yu3mao2qiu2", "en": "shuttlecock; badminton", "lv": 4}, {"w": "翻译", "py": "fānyì", "n": "fan1yi4", "en": "to translate; to interpret", "lv": 4}, {"w": "老虎", "py": "lǎohǔ", "n": "lao3hu3", "en": "tiger", "lv": 4}, {"w": "考虑", "py": "kǎolǜ", "n": "kao3lü4", "en": "to think over; to consider", "lv": 4}, {"w": "而", "py": "ér", "n": "er2", "en": "and; as well as", "lv": 4}, {"w": "耐心", "py": "nàixīn", "n": "nai4xin1", "en": "to be patient; patience", "lv": 4}, {"w": "聊天", "py": "liáotiān", "n": "liao2tian1", "en": "to chat; to gossip", "lv": 4}, {"w": "职业", "py": "zhíyè", "n": "zhi2ye4", "en": "occupation; profession; vocation; professional", "lv": 4}, {"w": "联系", "py": "liánxì", "n": "lian2xi4", "en": "connection; contact", "lv": 4}, {"w": "肚子", "py": "dùzi", "n": "du4zi5", "en": "belly; abdomen", "lv": 4}, {"w": "肯定", "py": "kěndìng", "n": "ken3ding4", "en": "to be certain; to be positive", "lv": 4}, {"w": "能力", "py": "nénglì", "n": "neng2li4", "en": "capability; ability", "lv": 4}, {"w": "脏", "py": "zāng", "n": "zang1", "en": "dirty; filthy", "lv": 4}, {"w": "脱", "py": "tuō", "n": "tuo1", "en": "to shed; to take off", "lv": 4}, {"w": "脾气", "py": "píqi", "n": "pi2qi5", "en": "character; temperament", "lv": 4}, {"w": "自然", "py": "zìrán", "n": "zi4ran2", "en": "nature; natural", "lv": 4}, {"w": "至少", "py": "zhìshǎo", "n": "zhi4shao3", "en": "at least; (to say the) least", "lv": 4}, {"w": "航班", "py": "hángbān", "n": "hang2ban1", "en": "(scheduled) flight; (scheduled) sailing", "lv": 4}, {"w": "艺术", "py": "yìshù", "n": "yi4shu4", "en": "art", "lv": 4}, {"w": "节约", "py": "jiéyuē", "n": "jie2yue1", "en": "to economize; to conserve (resources)", "lv": 4}, {"w": "苦", "py": "kǔ", "n": "ku3", "en": "bitter; hardship", "lv": 4}, {"w": "范围", "py": "fànwéi", "n": "fan4wei2", "en": "range; scope", "lv": 4}, {"w": "获得", "py": "huòdé", "n": "huo4de2", "en": "to obtain; to receive; to get", "lv": 4}, {"w": "著名", "py": "zhùmíng", "n": "zhu4ming2", "en": "famous; noted", "lv": 4}, {"w": "血", "py": "xuè", "n": "xue4", "en": "blood; colloquial pr. [xiě]", "lv": 4}, {"w": "行", "py": "xíng", "n": "xing2", "en": "to walk; to go", "lv": 4}, {"w": "表扬", "py": "biǎoyáng", "n": "biao3yang2", "en": "to praise; to commend", "lv": 4}, {"w": "表格", "py": "biǎogé", "n": "biao3ge2", "en": "form; table", "lv": 4}, {"w": "表达", "py": "biǎodá", "n": "biao3da2", "en": "to express; to convey", "lv": 4}, {"w": "袜子", "py": "wàzi", "n": "wa4zi5", "en": "socks; stockings", "lv": 4}, {"w": "西红柿", "py": "xīhóngshì", "n": "xi1hong2shi4", "en": "tomato", "lv": 4}, {"w": "观众", "py": "guānzhòng", "n": "guan1zhong4", "en": "spectators; audience", "lv": 4}, {"w": "规定", "py": "guīdìng", "n": "gui1ding4", "en": "to stipulate; to specify; to prescribe; to fix…", "lv": 4}, {"w": "解释", "py": "jiěshì", "n": "jie3shi4", "en": "explanation; to explain", "lv": 4}, {"w": "警察", "py": "jǐngchá", "n": "jing3cha2", "en": "police; police officer", "lv": 4}, {"w": "计划", "py": "jìhuà", "n": "ji4hua4", "en": "plan; project", "lv": 4}, {"w": "讨厌", "py": "tǎoyàn", "n": "tao3yan4", "en": "to dislike; to loathe", "lv": 4}, {"w": "讨论", "py": "tǎolùn", "n": "tao3lun4", "en": "to discuss; to talk over", "lv": 4}, {"w": "记者", "py": "jìzhě", "n": "ji4zhe3", "en": "reporter; journalist", "lv": 4}, {"w": "许多", "py": "xǔduō", "n": "xu3duo1", "en": "many; a lot of", "lv": 4}, {"w": "访问", "py": "fǎngwèn", "n": "fang3wen4", "en": "to visit; to call on", "lv": 4}, {"w": "证明", "py": "zhèngmíng", "n": "zheng4ming2", "en": "proof; certificate", "lv": 4}, {"w": "词典", "py": "cídiǎn", "n": "ci2dian3", "en": "dictionary; also written 辞典", "lv": 4}, {"w": "试", "py": "shì", "n": "shi4", "en": "to test; to try", "lv": 4}, {"w": "诚实", "py": "chéngshí", "n": "cheng2shi2", "en": "honest", "lv": 4}, {"w": "详细", "py": "xiángxì", "n": "xiang2xi4", "en": "detailed; in detail", "lv": 4}, {"w": "语法", "py": "yǔfǎ", "n": "yu3fa3", "en": "grammar", "lv": 4}, {"w": "语言", "py": "yǔyán", "n": "yu3yan2", "en": "language", "lv": 4}, {"w": "误会", "py": "wùhuì", "n": "wu4hui4", "en": "to misunderstand; to mistake", "lv": 4}, {"w": "说明", "py": "shuōmíng", "n": "shuo1ming2", "en": "to explain; to illustrate", "lv": 4}, {"w": "请假", "py": "qǐngjià", "n": "qing3jia4", "en": "to request leave of absence", "lv": 4}, {"w": "请客", "py": "qǐngkè", "n": "qing3ke4", "en": "to give a dinner party; to entertain guests", "lv": 4}, {"w": "调查", "py": "diàochá", "n": "diao4cha2", "en": "investigation; inquiry", "lv": 4}, {"w": "谈", "py": "tán", "n": "tan2", "en": "to speak; to talk", "lv": 4}, {"w": "负责", "py": "fùzé", "n": "fu4ze2", "en": "to be in charge of; to take responsibility for", "lv": 4}, {"w": "责任", "py": "zérèn", "n": "ze2ren4", "en": "responsibility; blame", "lv": 4}, {"w": "质量", "py": "zhìliàng", "n": "zhi4liang4", "en": "quality; (physics) mass", "lv": 4}, {"w": "购物", "py": "gòuwù", "n": "gou4wu4", "en": "shopping", "lv": 4}, {"w": "赚", "py": "zhuàn", "n": "zhuan4", "en": "to earn; to make a profit", "lv": 4}, {"w": "赢", "py": "yíng", "n": "ying2", "en": "to beat; to win", "lv": 4}, {"w": "起来", "py": "qǐlai", "n": "qi3lai5", "en": "to stand up; to get up", "lv": 4}, {"w": "起飞", "py": "qǐfēi", "n": "qi3fei1", "en": "(of an aircraft) to take off", "lv": 4}, {"w": "超过", "py": "chāoguò", "n": "chao1guo4", "en": "to surpass; to exceed", "lv": 4}, {"w": "趟", "py": "tàng", "n": "tang4", "en": "classifier for times, round trips or rows; a time", "lv": 4}, {"w": "距离", "py": "jùlí", "n": "ju4li2", "en": "distance; to be apart from", "lv": 4}, {"w": "躺", "py": "tǎng", "n": "tang3", "en": "to recline; to lie down", "lv": 4}, {"w": "软", "py": "ruǎn", "n": "ruan3", "en": "soft; flexible", "lv": 4}, {"w": "轻", "py": "qīng", "n": "qing1", "en": "light; easy", "lv": 4}, {"w": "轻松", "py": "qīngsōng", "n": "qing1song1", "en": "light; gentle", "lv": 4}, {"w": "输", "py": "shū", "n": "shu1", "en": "to lose; to be beaten; (literary) to donate; to contribute", "lv": 4}, {"w": "辛苦", "py": "xīnkǔ", "n": "xin1ku3", "en": "exhausting; hard", "lv": 4}, {"w": "辣", "py": "là", "n": "la4", "en": "hot (spicy); pungent", "lv": 4}, {"w": "过", "py": "guò", "n": "guo4", "en": "to cross; to go over", "lv": 4}, {"w": "过程", "py": "guòchéng", "n": "guo4cheng2", "en": "course of events; process", "lv": 4}, {"w": "进行", "py": "jìnxíng", "n": "jin4xing2", "en": "to advance; to conduct", "lv": 4}, {"w": "连", "py": "lián", "n": "lian2", "en": "to link; to join", "lv": 4}, {"w": "适合", "py": "shìhé", "n": "shi4he2", "en": "to fit; to suit", "lv": 4}, {"w": "适应", "py": "shìyìng", "n": "shi4ying4", "en": "to adapt; to fit", "lv": 4}, {"w": "逐渐", "py": "zhújiàn", "n": "zhu2jian4", "en": "gradually", "lv": 4}, {"w": "通知", "py": "tōngzhī", "n": "tong1zhi1", "en": "to notify; to inform", "lv": 4}, {"w": "通过", "py": "tōngguò", "n": "tong1guo4", "en": "to pass through; to get through", "lv": 4}, {"w": "逛", "py": "guàng", "n": "guang4", "en": "to stroll; to visit", "lv": 4}, {"w": "速度", "py": "sùdù", "n": "su4du4", "en": "speed; rate", "lv": 4}, {"w": "遍", "py": "biàn", "n": "bian4", "en": "everywhere; all over", "lv": 4}, {"w": "道歉", "py": "dàoqiàn", "n": "dao4qian4", "en": "to apologize", "lv": 4}, {"w": "邀请", "py": "yāoqǐng", "n": "yao1qing3", "en": "to invite; invitation", "lv": 4}, {"w": "部分", "py": "bùfen", "n": "bu4fen5", "en": "part; share", "lv": 4}, {"w": "酸", "py": "suān", "n": "suan1", "en": "sour; tart", "lv": 4}, {"w": "醒", "py": "xǐng", "n": "xing3", "en": "to wake up; to be awake", "lv": 4}, {"w": "重新", "py": "chóngxīn", "n": "chong2xin1", "en": "again; once more; re-", "lv": 4}, {"w": "重点", "py": "zhòngdiǎn", "n": "zhong4dian3", "en": "important point; main point; focus; key (project etc)", "lv": 4}, {"w": "重视", "py": "zhòngshì", "n": "zhong4shi4", "en": "to attach importance to sth; to value", "lv": 4}, {"w": "钥匙", "py": "yàoshi", "n": "yao4shi5", "en": "key", "lv": 4}, {"w": "镜子", "py": "jìngzi", "n": "jing4zi5", "en": "mirror", "lv": 4}, {"w": "长城", "py": "Chángchéng", "n": "Chang2cheng2", "en": "the Great Wall", "lv": 4}, {"w": "长江", "py": "Chángjiāng", "n": "Chang2jiang1", "en": "Yangtze River, or Chang Jiang", "lv": 4}, {"w": "阅读", "py": "yuèdú", "n": "yue4du2", "en": "to read; reading", "lv": 4}, {"w": "阳光", "py": "yángguāng", "n": "yang2guang1", "en": "sunshine; (of personality) upbeat; energetic", "lv": 4}, {"w": "降低", "py": "jiàngdī", "n": "jiang4di1", "en": "to reduce; to lower; to bring down", "lv": 4}, {"w": "限制", "py": "xiànzhì", "n": "xian4zhi4", "en": "to restrict; to limit", "lv": 4}, {"w": "陪", "py": "péi", "n": "pei2", "en": "to accompany; to keep sb company", "lv": 4}, {"w": "随便", "py": "suíbiàn", "n": "sui2bian4", "en": "as one wishes; as one pleases", "lv": 4}, {"w": "随着", "py": "suízhe", "n": "sui2zhe5", "en": "along with; in the wake of", "lv": 4}, {"w": "难受", "py": "nánshòu", "n": "nan2shou4", "en": "to feel unwell; to suffer pain", "lv": 4}, {"w": "难道", "py": "nándào", "n": "nan2dao4", "en": "don't tell me ...; could it be that...?", "lv": 4}, {"w": "集合", "py": "jíhé", "n": "ji2he2", "en": "to gather; to assemble; (math.) set", "lv": 4}, {"w": "页", "py": "yè", "n": "ye4", "en": "page; leaf", "lv": 4}, {"w": "顺便", "py": "shùnbiàn", "n": "shun4bian4", "en": "conveniently; in passing", "lv": 4}, {"w": "顺利", "py": "shùnlì", "n": "shun4li4", "en": "smoothly; without a hitch", "lv": 4}, {"w": "顺序", "py": "shùnxù", "n": "shun4xu4", "en": "sequence; order", "lv": 4}, {"w": "顾客", "py": "gùkè", "n": "gu4ke4", "en": "customer; client", "lv": 4}, {"w": "顿", "py": "dùn", "n": "dun4", "en": "to stop; to pause", "lv": 4}, {"w": "预习", "py": "yùxí", "n": "yu4xi2", "en": "to prepare a lesson", "lv": 4}, {"w": "风景", "py": "fēngjǐng", "n": "feng1jing3", "en": "scenery; landscape", "lv": 4}, {"w": "食品", "py": "shípǐn", "n": "shi2pin3", "en": "foodstuff; food; provisions", "lv": 4}, {"w": "饮料", "py": "yǐnliào", "n": "yin3liao4", "en": "drink; beverage", "lv": 4}, {"w": "饺子", "py": "jiǎozi", "n": "jiao3zi5", "en": "dumpling; pot-sticker", "lv": 4}, {"w": "饼干", "py": "bǐnggān", "n": "bing3gan1", "en": "biscuit; cracker; cookie", "lv": 4}, {"w": "首先", "py": "shǒuxiān", "n": "shou3xian1", "en": "first (of all); in the first place", "lv": 4}, {"w": "首都", "py": "shǒudū", "n": "shou3du1", "en": "capital (city)", "lv": 4}, {"w": "香", "py": "xiāng", "n": "xiang1", "en": "fragrant; sweet smelling", "lv": 4}, {"w": "马虎", "py": "mǎhu", "n": "ma3hu5", "en": "careless; sloppy", "lv": 4}, {"w": "骄傲", "py": "jiāo'ào", "n": "jiao1ao4", "en": "pride; arrogance", "lv": 4}, {"w": "骗", "py": "piàn", "n": "pian4", "en": "to cheat; to swindle", "lv": 4}, {"w": "高级", "py": "gāojí", "n": "gao1ji2", "en": "high level; high grade", "lv": 4}, {"w": "麻烦", "py": "máfan", "n": "ma2fan5", "en": "trouble; inconvenience; inconvenient; troublesome; annoying", "lv": 4}, {"w": "鼓励", "py": "gǔlì", "n": "gu3li4", "en": "to encourage", "lv": 4}, {"w": "鼓掌", "py": "gǔzhǎng", "n": "gu3zhang3", "en": "to applaud; to clap", "lv": 4}];
+</script>
+<script>
+const LESSONS = [
+  {
+    id: "tones",
+    title: "The four tones",
+    blurb: "Pitch changes the word — mā, má, mǎ, mà are four different words.",
+    cards: [
+      {
+        h: "Pitch is part of the word",
+        body: "In Mandarin the melody of a syllable is as important as its consonants and vowels. Say the same syllable with four different pitches and you get four unrelated words — nothing else changes.",
+        rows: [
+          ["mā", "妈", "mother"],
+          ["má", "麻", "hemp / numb"],
+          ["mǎ", "马", "horse"],
+          ["mà", "骂", "to scold"],
+        ],
+        say: ["妈", "麻", "马", "骂"],
+      },
+      {
+        h: "The four shapes",
+        body: "Tone 1 is high and flat — hold one pitch like humming. Tone 2 rises like asking \"huh?\". Tone 3 dips low then rises. Tone 4 falls fast and hard, like a short command.",
+        rows: [
+          ["mā", "妈", "tone 1 — high, flat"],
+          ["má", "麻", "tone 2 — rising"],
+          ["mǎ", "马", "tone 3 — low, dipping"],
+          ["mà", "骂", "tone 4 — falling sharply"],
+        ],
+        say: ["妈", "麻", "马", "骂"],
+      },
+      {
+        h: "The neutral tone",
+        body: "Some syllables carry no tone of their own. They're short, light, and borrow their pitch from the syllable before them. Numbered pinyin marks this with a 5.",
+        rows: [
+          ["māma", "妈妈", "mom — second syllable neutral"],
+          ["xièxie", "谢谢", "thanks — second syllable neutral"],
+          ["wǒmen", "我们", "we / us — men is neutral"],
+        ],
+        say: ["妈妈", "谢谢", "我们"],
+      },
+      {
+        h: "Where the tone mark goes",
+        body: "When a syllable has more than one vowel letter, the mark goes on a or e first; in ou it goes on o; otherwise it goes on the last vowel written.",
+        rows: [
+          ["hǎo", "好", "a beats o"],
+          ["méi", "没", "e comes first"],
+          ["dōu", "都", "ou → mark on o"],
+          ["duì", "对", "no a/e/o → last vowel"],
+        ],
+        say: ["好", "没", "都", "对"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which tone do you hear?", say: "妈", opts: ["1", "2", "3", "4"], a: "1", rv: "mā — 妈 mother — tone 1, high and flat" },
+      { t: "mc", q: "Which tone do you hear?", say: "麻", opts: ["1", "2", "3", "4"], a: "2", rv: "má — 麻 hemp — tone 2, rising" },
+      { t: "mc", q: "Which tone do you hear?", say: "马", opts: ["1", "2", "3", "4"], a: "3", rv: "mǎ — 马 horse — tone 3, low and dipping" },
+      { t: "mc", q: "Which tone do you hear?", say: "骂", opts: ["1", "2", "3", "4"], a: "4", rv: "mà — 骂 scold — tone 4, falling sharply" },
+      { t: "mc", q: "In 你好吗 (nǐ hǎo ma), what tone is 吗?", say: "你好吗", opts: ["1", "2", "3", "neutral"], a: "neutral", rv: "吗 (ma) is always a light, toneless question particle" },
+      { t: "mc", q: "好 is written hǎo, not hoǎ. Why does the mark sit on a?", opts: ["a and e always take priority over other vowels", "the mark always goes on the last vowel", "the mark always goes on the first vowel"], a: "a and e always take priority over other vowels", rv: "Rule: a/e first, then ou → o, otherwise the last vowel" },
+      { t: "mc", q: "都 is written dōu. Where does the tone mark go in the combination 'ou'?", opts: ["on o", "on u", "no mark is needed"], a: "on o", rv: "ou is a special case: the mark always lands on o" },
+      { t: "mc", q: "Which tone falls sharply from high to low, like a sharp command?", opts: ["1", "2", "3", "4"], a: "4", rv: "Tone 4 is the fast falling tone" },
+    ],
+  },
+
+  {
+    id: "finals-simple",
+    title: "Simple finals: a o e i u ü",
+    blurb: "Six pure vowel sounds — including the tricky ü.",
+    cards: [
+      {
+        h: "Six basic vowels",
+        body: "These are the building blocks every other final is made from. Say each one on its own before you try it in a word.",
+        rows: [
+          ["bā", "八", "eight — a"],
+          ["wǒ", "我", "I / me — o"],
+          ["hē", "喝", "to drink — e"],
+          ["nǐ", "你", "you — i"],
+          ["bù", "不", "no / not — u"],
+          ["qù", "去", "to go — ü, written u after q"],
+        ],
+        say: ["八", "我", "喝", "你", "不", "去"],
+      },
+      {
+        h: "The ü sound",
+        body: "Round your lips like you're about to say u, but keep your tongue where it is for i. That combination is ü. English has no equivalent — most learners' first mistake is swapping it for u.",
+        rows: [
+          ["lù", "路", "road — u"],
+          ["lǜ", "绿", "green — ü"],
+        ],
+        say: ["路", "绿"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "What is the final in 我 (wǒ)?", say: "我", opts: ["o", "e", "u"], a: "o", rv: "我 = w + o" },
+      { t: "mc", q: "What is the final in 喝 (hē)?", say: "喝", opts: ["e", "o", "a"], a: "e", rv: "喝 = h + e" },
+      { t: "mc", q: "What is the final in 你 (nǐ)?", say: "你", opts: ["i", "u", "ü"], a: "i", rv: "你 = n + i" },
+      { t: "mc", q: "What is the final in 不 (bù)?", say: "不", opts: ["u", "o", "ü"], a: "u", rv: "不 = b + u" },
+      { t: "mc", q: "What is the final in 去 (qù)?", say: "去", opts: ["ü", "u", "i"], a: "ü", rv: "去 is spelled qu but pronounced with ü — after q the dots are dropped" },
+      { t: "mc", q: "Which word do you hear?", say: "绿", opts: ["lù", "lǜ", "nǚ"], a: "lǜ", rv: "绿 (lǜ) — rounded lips, tongue at the i position" },
+      { t: "mc", q: "After j, q, or x, how is ü written?", opts: ["ü", "u", "yu"], a: "u", rv: "The dots are dropped: ju, qu, xu are all really ü sounds" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 女 (woman)?", opts: ["nǚ", "nu", "nv3"], a: "nǚ", rv: "女 keeps its umlaut because it has no j/q/x before it" },
+    ],
+  },
+
+  {
+    id: "initials-bpmfdtnl",
+    title: "Initials: b p m f · d t n l",
+    blurb: "Aspiration — the puff-of-air test that splits b/p and d/t.",
+    cards: [
+      {
+        h: "Aspirated vs. unaspirated",
+        body: "b and p use the same lip position — the only difference is a puff of air. b has none, p has a strong burst. Hold a hand or tissue in front of your mouth: it barely moves for b, but jumps for p. The same pairing applies to d/t.",
+        rows: [
+          ["bà", "爸", "dad — b, no puff of air"],
+          ["pà", "怕", "to fear — p, puff of air"],
+          ["dà", "大", "big — d, no puff of air"],
+          ["tā", "他", "he / she — t, puff of air"],
+        ],
+        say: ["爸", "怕", "大", "他"],
+      },
+      {
+        h: "m, f, n, l",
+        body: "m and n are nasal — air goes through the nose, lips closed for m, tongue tip on the ridge behind the teeth for n. f is like English f. l is a clear tongue-tip l, always light, never the 'dark l' at the end of English 'ball'.",
+        rows: [
+          ["mā", "妈", "mother — lips together, nasal"],
+          ["fàn", "饭", "meal — like English f"],
+          ["nǐ", "你", "you — tongue tip on the ridge"],
+          ["lái", "来", "to come — clear, light l"],
+        ],
+        say: ["妈", "饭", "你", "来"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which initial do you hear?", say: "爸", opts: ["b", "p", "m"], a: "b", rv: "b — no puff of air" },
+      { t: "mc", q: "Which initial do you hear?", say: "怕", opts: ["b", "p", "f"], a: "p", rv: "p — strong puff of air" },
+      { t: "mc", q: "Which initial do you hear?", say: "大", opts: ["d", "t", "n"], a: "d", rv: "d — no puff of air" },
+      { t: "mc", q: "Which initial do you hear?", say: "他", opts: ["d", "t", "l"], a: "t", rv: "t — strong puff of air" },
+      { t: "mc", q: "Which word do you hear?", say: "你", opts: ["nǐ", "lǐ", "dǐ"], a: "nǐ", rv: "你 (nǐ) — tongue tip on the ridge, nasal" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 'meal'?", opts: ["fàn", "hàn", "fann"], a: "fàn", rv: "饭 is fàn — f like English f" },
+      { t: "mc", q: "Which initial does 来 (lái) start with?", say: "来", opts: ["n", "l", "r"], a: "l", rv: "来 (lái) — clear, light l" },
+      { t: "mc", q: "Hold a tissue in front of your mouth. Which sound makes it flutter?", opts: ["b", "p", "d"], a: "p", rv: "p is aspirated: a burst of air follows the lip release" },
+    ],
+  },
+
+  {
+    id: "initials-sibilants",
+    title: "g k h · the three sibilant rows",
+    blurb: "z c s vs. zh ch sh r vs. j q x — the classic trap for English speakers.",
+    cards: [
+      {
+        h: "g, k, h",
+        body: "These come from the back of the throat, like English g, k, h, but crisper.",
+        rows: [
+          ["gè", "个", "measure word — g"],
+          ["kě", "可", "can, as in 可以 — k"],
+          ["hē", "喝", "to drink — h"],
+        ],
+        say: ["个", "可", "喝"],
+      },
+      {
+        h: "Three rows, three tongue shapes",
+        body: "z c s sit with the tongue tip flat behind the lower teeth, like a soft English 'ds/ts/s'. zh ch sh r curl the tongue tip back without touching anything — the single hardest sound for English speakers to place. j q x are flat and forward, always followed by i or ü, close to English 'j/ch/sh' but lighter.",
+        rows: [
+          ["zài", "在", "at / in — z, flat tongue"],
+          ["cái", "才", "only then — c, flat tongue"],
+          ["sān", "三", "three — s, flat tongue"],
+          ["zhè", "这", "this — zh, tongue curled back"],
+          ["chī", "吃", "to eat — ch, tongue curled back"],
+          ["shì", "是", "to be — sh, tongue curled back"],
+          ["rì", "日", "sun / day — r, tongue curled back"],
+          ["jiā", "家", "home — j, flat and forward"],
+          ["qī", "七", "seven — q, flat and forward"],
+          ["xiè", "谢", "thank, as in 谢谢 — x, flat and forward"],
+        ],
+        say: ["在", "才", "三", "这", "吃", "是", "日", "家", "七", "谢"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which word do you hear?", say: "吃", opts: ["zhī", "chī", "cī", "xī"], a: "chī", rv: "吃 (chī) — retroflex, tongue curled back with a puff of air" },
+      { t: "mc", q: "Which word do you hear?", say: "是", opts: ["sì", "shì", "xì"], a: "shì", rv: "是 (shì) — retroflex sh, tongue curled back" },
+      { t: "mc", q: "Which word do you hear?", say: "七", opts: ["qī", "chī", "cī", "xī"], a: "qī", rv: "七 (qī) — flat, forward tongue, always before i/ü" },
+      { t: "mc", q: "j, q, and x can only be followed by which vowels?", opts: ["i or ü", "a or o", "any vowel"], a: "i or ü", rv: "This row exists only before i and ü — no jia-without-i, no qa, no xo" },
+      { t: "mc", q: "Which initial does 这 (zhè) start with?", say: "这", opts: ["z", "zh", "j"], a: "zh", rv: "这 (zhè) — retroflex zh" },
+      { t: "mc", q: "Which initial does 在 (zài) start with?", say: "在", opts: ["z", "zh", "j"], a: "z", rv: "在 (zài) — flat-tongue z" },
+      { t: "mc", q: "Which initial does 家 (jiā) start with?", say: "家", opts: ["z", "zh", "j"], a: "j", rv: "家 (jiā) — flat, forward j" },
+      { t: "mc", q: "For zh, ch, sh, r, where does the tongue tip go?", opts: ["curled back, not touching anything", "flat against the back of the teeth", "pressed to the roof at the front"], a: "curled back, not touching anything", rv: "Retroflex sounds: tongue curls back into the mouth, floating" },
+    ],
+  },
+
+  {
+    id: "finals-compound",
+    title: "Compound finals: ai ei ao ou · ia ie ua uo üe",
+    blurb: "Two vowel sounds glide smoothly into one syllable.",
+    cards: [
+      {
+        h: "Gliding vowels",
+        body: "Each of these is a smooth slide from the first vowel sound toward the second — don't pause in the middle. Say them slowly at first, then speed up until it's one motion.",
+        rows: [
+          ["bái", "白", "white — ai"],
+          ["méi", "没", "not have — ei"],
+          ["hǎo", "好", "good — ao"],
+          ["dōu", "都", "all — ou"],
+          ["jiā", "家", "home — ia"],
+          ["xiě", "写", "to write — ie"],
+          ["huà", "话", "speech — ua"],
+          ["duō", "多", "many — uo"],
+          ["xué", "学", "to study — üe, written ue after x"],
+        ],
+        say: ["白", "没", "好", "都", "家", "写", "话", "多", "学"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which final does 白 (bái) have?", say: "白", opts: ["ai", "ei", "ao"], a: "ai", rv: "白 (bái) — ai glide" },
+      { t: "mc", q: "Which final does 好 (hǎo) have?", say: "好", opts: ["ai", "ao", "ou"], a: "ao", rv: "好 (hǎo) — ao glide" },
+      { t: "mc", q: "Which final does 都 (dōu) have?", say: "都", opts: ["ao", "ou", "uo"], a: "ou", rv: "都 (dōu) — ou glide" },
+      { t: "mc", q: "Which final does 写 (xiě) have?", say: "写", opts: ["ie", "ia", "üe"], a: "ie", rv: "写 (xiě) — ie glide" },
+      { t: "mc", q: "学 is spelled xue. What is its final actually pronounced as?", say: "学", opts: ["üe", "ue, like English 'cue'", "oo"], a: "üe", rv: "After x the ü loses its dots but keeps its sound" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 'many' (duō)?", opts: ["duo", "dwo", "duou"], a: "duo", rv: "多 is duō — u glides into o" },
+      { t: "mc", q: "Which final does 话 (huà) have?", say: "话", opts: ["ua", "uo", "ia"], a: "ua", rv: "话 (huà) — ua glide" },
+      { t: "mc", q: "In 好 (hǎo), which letter carries the tone mark?", opts: ["h", "a", "o"], a: "a", rv: "a always outranks o for the tone mark" },
+    ],
+  },
+
+  {
+    id: "finals-nasal",
+    title: "Nasal finals: an en ang eng ong",
+    blurb: "-n touches the tongue tip; -ng doesn't touch anything.",
+    cards: [
+      {
+        h: "-n vs -ng",
+        body: "For -n, the tongue tip presses against the ridge behind your upper teeth, same as English 'n'. For -ng, the tongue tip touches nothing — the back of the tongue rises and the sound is nasal, like English 'sing'. Mixing these up is one of the most common mistakes for English speakers.",
+        rows: [
+          ["màn", "慢", "slow — an"],
+          ["mén", "门", "door — en"],
+          ["máng", "忙", "busy — ang"],
+          ["péng", "朋", "friend, as in 朋友 — eng"],
+          ["hóng", "红", "red — ong"],
+        ],
+        say: ["慢", "门", "忙", "朋", "红"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which word do you hear?", say: "慢", opts: ["màn", "máng", "wàn"], a: "màn", rv: "慢 (màn) — tongue tip touches the ridge" },
+      { t: "mc", q: "Which word do you hear?", say: "忙", opts: ["màn", "máng", "fáng"], a: "máng", rv: "忙 (máng) — tongue tip touches nothing" },
+      { t: "mc", q: "Which final does 红 (hóng) have?", say: "红", opts: ["an", "ang", "ong"], a: "ong", rv: "红 (hóng) — ong, lips rounded" },
+      { t: "mc", q: "For -ng, does the tongue tip touch the roof of the mouth?", opts: ["yes", "no", "only sometimes"], a: "no", rv: "-ng is made entirely with the back of the tongue" },
+      { t: "mc", q: "Which final does 门 (mén) have?", say: "门", opts: ["en", "eng", "an"], a: "en", rv: "门 (mén) — en, tongue tip touches the ridge" },
+      { t: "mc", q: "Which final does 朋 (péng) have?", say: "朋", opts: ["en", "eng", "ang"], a: "eng", rv: "朋 (péng) — eng, tongue tip touches nothing" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 'busy' (máng)?", opts: ["mang", "manng", "mng"], a: "mang", rv: "忙 is máng" },
+      { t: "mc", q: "Which word do you hear?", say: "门", opts: ["mén", "méng", "měn"], a: "mén", rv: "门 (mén) ends in -n, not -ng" },
+    ],
+  },
+
+  {
+    id: "finals-i-row",
+    title: "i-row finals: ian in iang ing iong iao iu",
+    blurb: "Adding nasal and glide endings onto i.",
+    cards: [
+      {
+        h: "Building on i",
+        body: "These finals all start from the i sound and add a nasal or glide ending. Watch the -n/-ng pairs again: ian vs iang, in vs ing.",
+        rows: [
+          ["tiān", "天", "sky / day — ian"],
+          ["xīn", "心", "heart — in"],
+          ["liǎng", "两", "two, a couple — iang"],
+          ["míng", "名", "name, as in 名字 — ing"],
+          ["xiǎo", "小", "small — iao"],
+          ["jiǔ", "九", "nine — iu, shortened from iou"],
+        ],
+        say: ["天", "心", "两", "名", "小", "九"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which final does 天 (tiān) have?", say: "天", opts: ["ian", "in", "iang"], a: "ian", rv: "天 (tiān) — ian" },
+      { t: "mc", q: "Which final does 心 (xīn) have?", say: "心", opts: ["in", "ing", "ian"], a: "in", rv: "心 (xīn) — in, tongue tip touches the ridge" },
+      { t: "mc", q: "Which final does 两 (liǎng) have?", say: "两", opts: ["iang", "ing", "iong"], a: "iang", rv: "两 (liǎng) — iang" },
+      { t: "mc", q: "Which final does 名 (míng) have?", say: "名", opts: ["in", "ing", "ian"], a: "ing", rv: "名 (míng) — ing, back of the tongue only" },
+      { t: "mc", q: "九 (jiǔ) is really 'jiou' shortened to what spelling?", opts: ["jiu", "jio", "jou"], a: "jiu", rv: "iou shortens to iu when written; the tone mark lands on u" },
+      { t: "mc", q: "Which final does 小 (xiǎo) have?", say: "小", opts: ["iao", "iu", "ia"], a: "iao", rv: "小 (xiǎo) — iao" },
+      { t: "mc", q: "Which word do you hear?", say: "心", opts: ["xīn", "xīng", "xín"], a: "xīn", rv: "心 (xīn) ends in -n" },
+      { t: "mc", q: "Which word do you hear?", say: "名", opts: ["mín", "míng", "mǐn"], a: "míng", rv: "名 (míng) ends in -ng" },
+    ],
+  },
+
+  {
+    id: "finals-u-row",
+    title: "u/ü-row finals and spelling shortcuts",
+    blurb: "uai ui uan un uang üan ün, plus the y/w and jqx spelling rules.",
+    cards: [
+      {
+        h: "u/ü-row finals",
+        body: "Two of these are shortened in writing: uei becomes ui, and uen becomes un. Say the full form once, then the short written form — the sound doesn't change.",
+        rows: [
+          ["kuài", "快", "fast — uai"],
+          ["duì", "对", "correct — uei written ui"],
+          ["duǎn", "短", "short — uan"],
+          ["chūn", "春", "spring — uen written un"],
+          ["huáng", "黄", "yellow — uang"],
+          ["quán", "全", "whole, entire — üan written uan after q"],
+          ["qún", "裙", "skirt — ün written un after q"],
+        ],
+        say: ["快", "对", "短", "春", "黄", "全", "裙"],
+      },
+      {
+        h: "No bare vowels: the y/w rule",
+        body: "A syllable can't start with a naked i, u, or ü — pinyin adds y or w in front instead. i alone becomes yi, u alone becomes wu, ü alone becomes yu.",
+        rows: [
+          ["yī", "一", "one — i alone → yi"],
+          ["wǔ", "五", "five — u alone → wu"],
+          ["yǔ", "雨", "rain — ü alone → yu"],
+          ["wèn", "问", "to ask — en alone → wen"],
+        ],
+        say: ["一", "五", "雨", "问"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "对 (duì) is really 'duei' shortened to what spelling?", opts: ["dui", "due", "dei"], a: "dui", rv: "uei shortens to ui; the tone mark lands on i" },
+      { t: "mc", q: "春 (chūn) is really 'chuen' shortened to what spelling?", opts: ["chun", "chuen", "chon"], a: "chun", rv: "uen shortens to un after an initial consonant" },
+      { t: "mc", q: "全 (quán) — why are there no dots over the u?", opts: ["ü is written u after j, q, x", "q can't be followed by ü", "it's a typo"], a: "ü is written u after j, q, x", rv: "quán is really qüán — the umlaut is dropped but the ü sound stays" },
+      { t: "mc", q: "一 (yī) — why does it start with y instead of a bare i?", opts: ["pinyin syllables can't start with a bare i", "y changes the vowel sound", "it's random"], a: "pinyin syllables can't start with a bare i", rv: "i, u, and ü always get a y/w when they start a syllable alone" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 五 (five)?", say: "五", opts: ["wu", "u", "wo"], a: "wu", rv: "五 is wǔ — bare u becomes wu" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 雨 (rain)?", say: "雨", opts: ["yu", "ü", "yv"], a: "yu", rv: "雨 is yǔ — bare ü becomes yu" },
+      { t: "mc", q: "Which final does 快 (kuài) have?", say: "快", opts: ["uai", "uan", "uang"], a: "uai", rv: "快 (kuài) — uai" },
+      { t: "mc", q: "Which word do you hear?", say: "短", opts: ["duǎn", "duǎng", "duàn"], a: "duǎn", rv: "短 (duǎn) ends in -n, not -ng" },
+    ],
+  },
+
+  {
+    id: "special-syllables",
+    title: "Special syllables: zhi chi shi ri zi ci si · er",
+    blurb: "The 'i' here is a buzz, not a real vowel — plus 儿 and erhua.",
+    cards: [
+      {
+        h: "A silent placeholder i",
+        body: "After zh ch sh r z c s, the written i is not the vowel you hear elsewhere. It's just a buzzing continuation of the consonant — the tongue never moves to make a separate vowel sound.",
+        rows: [
+          ["zhī", "知", "to know, as in 知道"],
+          ["chī", "吃", "to eat"],
+          ["shì", "是", "to be"],
+          ["rì", "日", "sun / day"],
+          ["zì", "字", "character / word"],
+          ["cí", "词", "word / term"],
+          ["sì", "四", "four"],
+        ],
+        say: ["知", "吃", "是", "日", "字", "词", "四"],
+      },
+      {
+        h: "er and erhua",
+        body: "儿 (ér) is a syllable on its own, made with the tongue curled back. Attached to the end of another syllable it becomes 'erhua' — the two blend into one sound with a retroflex color, common in Beijing speech.",
+        rows: [
+          ["èr", "二", "two"],
+          ["ér", "儿", "son / child suffix"],
+          ["yìdiǎnr", "一点儿", "a little — diǎn + r blend into one syllable"],
+        ],
+        say: ["二", "儿", "一点儿"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "In zhī, chī, shī, what is the 'i' sound really doing?", opts: ["it's a real 'ee' vowel", "it's just a buzz — the tongue stays where it is for the consonant", "it's silent"], a: "it's just a buzz — the tongue stays where it is for the consonant", rv: "This i is a placeholder vowel, unlike i in nǐ or jiā" },
+      { t: "mc", q: "Which word do you hear?", say: "字", opts: ["zì", "zhì", "cì"], a: "zì", rv: "字 (zì) — flat tongue, not retroflex" },
+      { t: "mc", q: "Which is the correctly spelled pinyin for 二 (two)?", say: "二", opts: ["èr", "er4", "ar"], a: "èr", rv: "二 is èr — tongue curled back for the whole syllable" },
+      { t: "mc", q: "一点儿 sounds like one syllable ending in what?", opts: ["a retroflex -r color", "two separate, clearly split syllables", "a silent, unheard r"], a: "a retroflex -r color", rv: "Erhua fuses the r into the syllable before it" },
+      { t: "mc", q: "Which word do you hear?", say: "知", opts: ["zhī", "zī", "chī"], a: "zhī", rv: "知 (zhī) — retroflex zh" },
+      { t: "mc", q: "Which word do you hear?", say: "词", opts: ["cí", "chí", "sí"], a: "cí", rv: "词 (cí) — flat tongue c, not retroflex" },
+      { t: "mc", q: "Which word do you hear?", say: "是", opts: ["shì", "sì", "xì"], a: "shì", rv: "是 (shì) — retroflex sh" },
+      { t: "mc", q: "Which word do you hear?", say: "日", opts: ["rì", "lì", "zì"], a: "rì", rv: "日 (rì) — retroflex r, no English equivalent" },
+    ],
+  },
+
+  {
+    id: "tone-sandhi",
+    title: "Tone sandhi: 3rd+3rd, 不, 一",
+    blurb: "Some tones change in speech but stay the same on the page.",
+    cards: [
+      {
+        h: "Two 3rd tones in a row",
+        body: "When a 3rd tone is immediately followed by another 3rd tone, the first one is actually spoken as a 2nd tone. The pinyin is still written with both as 3rd tone marks — only the pronunciation shifts.",
+        rows: [
+          ["nǐhǎo → níhǎo", "你好", "hello — written nǐ hǎo, spoken ní hǎo"],
+          ["hěnhǎo → hénhǎo", "很好", "very good — written hěn hǎo, spoken hén hǎo"],
+        ],
+        say: ["你好", "很好"],
+      },
+      {
+        h: "不 (bù) changes before a 4th tone",
+        body: "不 is normally 4th tone. But when the next syllable is also 4th tone, 不 shifts to 2nd tone (bú) to avoid two hard falls in a row. Before any other tone it stays bù.",
+        rows: [
+          ["bù chī", "不吃", "don't eat — chī is 1st tone, so bù stays"],
+          ["bú duì", "不对", "not correct — duì is 4th tone, so bù → bú"],
+        ],
+        say: ["不吃", "不对"],
+      },
+      {
+        h: "一 (yī) changes with its neighbor",
+        body: "一 is 1st tone when counting, at the end of a word, or as an ordinal. Before a 4th-tone syllable it becomes yí (2nd tone). Before a 1st-, 2nd-, or 3rd-tone syllable it becomes yì (4th tone).",
+        rows: [
+          ["yī", "一", "one — counting, unchanged"],
+          ["yí ge", "一个", "one (measure word) — gè is 4th tone, so yī → yí"],
+          ["yì tiān", "一天", "one day — tiān is 1st tone, so yī → yì"],
+        ],
+        say: ["一", "一个", "一天"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "How is 你好 actually pronounced?", opts: ["ní hǎo", "nǐ hǎo", "nì hǎo"], a: "ní hǎo", rv: "Two 3rd tones in a row: the first becomes 2nd tone in speech" },
+      { t: "mc", q: "很好 (hěn hǎo) is actually spoken as?", opts: ["hén hǎo", "hěn hǎo", "hèn hǎo"], a: "hén hǎo", rv: "Same rule: 3rd+3rd → 2nd+3rd when spoken" },
+      { t: "mc", q: "不对 (bù duì) — how is 不 actually pronounced here?", opts: ["bú", "bù", "bǔ"], a: "bú", rv: "不 shifts to 2nd tone before another 4th-tone syllable" },
+      { t: "mc", q: "不吃 (bù chī) — how is 不 actually pronounced here?", opts: ["bù", "bú", "bǔ"], a: "bù", rv: "不 stays 4th tone before a non-4th-tone syllable" },
+      { t: "mc", q: "一个 (yí ge) — what tone does 一 change to before this 4th-tone word?", opts: ["2nd (yí)", "4th (yì)", "stays 1st (yī)"], a: "2nd (yí)", rv: "一 becomes 2nd tone before a 4th-tone syllable" },
+      { t: "mc", q: "一天 (yì tiān) — what tone does 一 change to before this 1st-tone word?", opts: ["4th (yì)", "2nd (yí)", "stays 1st (yī)"], a: "4th (yì)", rv: "一 becomes 4th tone before a 1st-, 2nd-, or 3rd-tone syllable" },
+      { t: "mc", q: "When is 一 pronounced yī, unchanged?", opts: ["when counting, at the end of a word, or as an ordinal", "always, in every position", "only before a 4th tone"], a: "when counting, at the end of a word, or as an ordinal", rv: "Sandhi only applies when 一 is directly followed by another syllable" },
+      { t: "mc", q: "Does tone sandhi change how 你好 is written with tone marks?", opts: ["no — still written nǐ hǎo, only the spoken pitch shifts", "yes — it's written ní hǎo", "yes — it's written nì hǎo"], a: "no — still written nǐ hǎo, only the spoken pitch shifts", rv: "Sandhi is a rule of speech, not of spelling" },
+    ],
+  },
+
+  {
+    id: "neutral-tone",
+    title: "Neutral tone in words",
+    blurb: "妈妈, 学生, 我们 — light, toneless syllables that lean on the one before.",
+    cards: [
+      {
+        h: "Short and unstressed",
+        body: "A neutral-tone syllable has no pitch contour of its own — it's short, light, and its exact pitch depends on the tone before it. In numbered pinyin it's written with a 5 and carries no tone mark in written pinyin.",
+        rows: [
+          ["māma", "妈妈", "mom — second syllable neutral"],
+          ["xuésheng", "学生", "student — sheng is neutral"],
+          ["wǒmen", "我们", "we / us — men is neutral"],
+          ["xièxie", "谢谢", "thanks — second syllable neutral"],
+          ["péngyou", "朋友", "friend — you is neutral"],
+        ],
+        say: ["妈妈", "学生", "我们", "谢谢", "朋友"],
+      },
+    ],
+    items: [
+      { t: "mc", q: "Which syllable in 妈妈 is neutral tone?", say: "妈妈", opts: ["1st", "2nd", "neither"], a: "2nd", rv: "妈妈 — the second mā loses its tone and becomes light" },
+      { t: "mc", q: "What tone is 生 in 学生 (xuésheng)?", say: "学生", opts: ["1", "2", "3", "4", "neutral"], a: "neutral", rv: "生 carries no pitch of its own here — it's light and short" },
+      { t: "mc", q: "In numbered pinyin, neutral tone is written as which digit?", opts: ["5", "0", "no digit at all"], a: "5", rv: "xue2sheng5 — 5 marks the neutral tone" },
+      { t: "mc", q: "What tone is 们 in 我们 (wǒmen)?", say: "我们", opts: ["1", "2", "3", "neutral"], a: "neutral", rv: "们 is always neutral tone in this word" },
+      { t: "mc", q: "Which syllable in 谢谢 is neutral tone?", say: "谢谢", opts: ["1st", "2nd", "neither"], a: "2nd", rv: "The second xiè loses its falling tone and becomes light" },
+      { t: "mc", q: "What does a neutral-tone syllable sound like?", opts: ["short and light, its pitch shaped by the syllable before it", "long and high-pitched", "always falling sharply"], a: "short and light, its pitch shaped by the syllable before it", rv: "Neutral tone has no fixed contour of its own" },
+      { t: "mc", q: "What tone is 友 in 朋友 (péngyou)?", say: "朋友", opts: ["1", "2", "3", "neutral"], a: "neutral", rv: "友 is neutral here, even though 友 alone is 3rd tone (yǒu)" },
+      { t: "mc", q: "学生's numbered pinyin is xue2sheng__. What number fills the blank?", opts: ["5", "1", "4"], a: "5", rv: "5 is the digit for neutral tone" },
+    ],
+  },
+
+  {
+    id: "tone-pairs",
+    title: "Reading whole words: tone pairs",
+    blurb: "Two-syllable words fall into tone patterns — learn to hear the pair.",
+    cards: [
+      {
+        h: "Every pattern, one word each",
+        body: "Most Chinese words are two syllables, and each has its own tone pattern, like a two-note melody. Learn to hear the pattern as a whole instead of counting tones one at a time.",
+        rows: [
+          ["jīntiān", "今天", "today — 1-1"],
+          ["Zhōngguó", "中国", "China — 1-2"],
+          ["zhōngwǔ", "中午", "noon — 1-3"],
+          ["yīnwèi", "因为", "because — 1-4"],
+          ["shíjiān", "时间", "time — 2-1"],
+          ["xuéxí", "学习", "to study — 2-2"],
+          ["cídiǎn", "词典", "dictionary — 2-3"],
+          ["xuéxiào", "学校", "school — 2-4"],
+          ["lǎoshī", "老师", "teacher — 3-1"],
+          ["dǎqiú", "打球", "to play ball — 3-2"],
+          ["nǐhǎo", "你好", "hello — 3-3"],
+          ["dǎzì", "打字", "to type — 3-4"],
+          ["shàngbān", "上班", "to go to work — 4-1"],
+          ["miàntiáo", "面条", "noodles — 4-2"],
+          ["diànnǎo", "电脑", "computer — 4-3"],
+          ["xiànzài", "现在", "now — 4-4"],
+          ["māma", "妈妈", "mom — 1-neutral"],
+          ["xièxie", "谢谢", "thanks — 4-neutral"],
+        ],
+        say: ["今天", "中国", "中午", "因为", "时间", "学习", "词典", "学校", "老师", "打球", "你好", "打字", "上班", "面条", "电脑", "现在", "妈妈", "谢谢"],
+      },
+      {
+        h: "Read the pattern, not the syllables",
+        body: "When you see a new word, say each syllable's tone in your head first, then blend them smoothly — don't let the tone of the last syllable bleed backward onto the first.",
+      },
+    ],
+    items: [
+      { t: "mc", q: "What is the tone pattern of 你好?", say: "你好", opts: ["3-3", "3-1", "1-3", "2-3"], a: "3-3", rv: "你好 is written 3-3 — spoken sandhi makes it sound like 2-3, but the pattern is 3-3" },
+      { t: "mc", q: "What is the tone pattern of 中国?", say: "中国", opts: ["1-2", "2-1", "1-1", "4-2"], a: "1-2", rv: "Zhōng (1) + guó (2)" },
+      { t: "mc", q: "What is the tone pattern of 学校?", say: "学校", opts: ["2-4", "4-2", "2-2", "2-1"], a: "2-4", rv: "Xué (2) + xiào (4)" },
+      { t: "mc", q: "What is the tone pattern of 现在?", say: "现在", opts: ["4-4", "4-3", "3-4", "2-4"], a: "4-4", rv: "Xiàn (4) + zài (4)" },
+      { t: "mc", q: "What is the tone pattern of 电脑?", say: "电脑", opts: ["4-3", "3-4", "4-4", "3-3"], a: "4-3", rv: "Diàn (4) + nǎo (3)" },
+      { t: "mc", q: "What is the tone pattern of 老师?", say: "老师", opts: ["3-1", "1-3", "3-3", "2-1"], a: "3-1", rv: "Lǎo (3) + shī (1)" },
+      { t: "mc", q: "What is the tone pattern of 妈妈?", say: "妈妈", opts: ["1-5", "1-1", "5-1", "2-5"], a: "1-5", rv: "Mā (1) + ma (neutral, 5)" },
+      { t: "mc", q: "What is the tone pattern of 谢谢?", say: "谢谢", opts: ["4-5", "5-4", "4-4", "2-5"], a: "4-5", rv: "Xiè (4) + xie (neutral, 5)" },
+    ],
+  },
+];
+
+if (typeof module !== "undefined" && module.exports) module.exports = LESSONS;
+</script>
+<script>
+// pinyin_core.js — pinyin helpers shared by the trainer app and the node checks.
+// No DOM dependency (works under Node for tests); exports via window or module.exports.
+(function(root){
+"use strict";
+
+// ---------------------------------------------------------------- tone marks
+const TONE_CHARS = {
+  a: ["a","ā","á","ǎ","à"],
+  e: ["e","ē","é","ě","è"],
+  i: ["i","ī","í","ǐ","ì"],
+  o: ["o","ō","ó","ǒ","ò"],
+  u: ["u","ū","ú","ǔ","ù"],
+  "ü": ["ü","ǖ","ǘ","ǚ","ǜ"]
+};
+const BASE_OF = {};
+Object.keys(TONE_CHARS).forEach(base=>{ TONE_CHARS[base].forEach(ch=>{ BASE_OF[ch]=base; }); });
+
+function toneMarkChar(baseLetter, tone){
+  const arr = TONE_CHARS[baseLetter];
+  if(!arr) return baseLetter;
+  if(!tone || tone===0 || tone===5) return baseLetter;
+  return arr[tone] || baseLetter;
+}
+
+// Standard placement rule: a > e > o > last of i/u/ü.
+function markVowelIndex(letters){
+  const lower = letters.toLowerCase();
+  let idx = lower.indexOf("a"); if(idx>=0) return idx;
+  idx = lower.indexOf("e"); if(idx>=0) return idx;
+  idx = lower.indexOf("o"); if(idx>=0) return idx;
+  for(let i=lower.length-1;i>=0;i--){ if("iuü".indexOf(lower[i])>=0) return i; }
+  return -1;
+}
+
+function markSyllable(letters, tone){
+  const idx = markVowelIndex(letters);
+  if(idx<0) return letters;
+  const ch = letters[idx];
+  const base = BASE_OF[ch.toLowerCase()] || ch.toLowerCase();
+  const marked = toneMarkChar(base, +tone);
+  const isUpper = ch === ch.toUpperCase() && ch !== ch.toLowerCase();
+  const out = isUpper ? marked.toUpperCase() : marked;
+  return letters.slice(0,idx) + out + letters.slice(idx+1);
+}
+
+// ------------------------------------------------------------- syllable split
+const SYLL_RE = /[a-zA-Zü]+[0-5]/g;
+function syll(n){ return String(n).match(SYLL_RE) || []; }
+function tones(n){ return syll(n).map(s=>s.slice(-1)).join("-"); }
+function startsAOE(chunk){ return /^[aeoüAEOÜ]/.test(chunk); }
+
+function markOne(chunk){ return markSyllable(chunk.slice(0,-1), chunk.slice(-1)); }
+
+// numbered -> marked, with the a/o/e syllable-boundary apostrophe rule (Xi'an, nǚ'ér)
+function mark(n){
+  const chunks = syll(n);
+  let out = "";
+  chunks.forEach((c,i)=>{
+    if(i>0 && startsAOE(c)) out += "'";
+    out += markOne(c);
+  });
+  return out;
+}
+
+function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// tone-coloured pinyin renderer: each syllable in <span class="t1".."t5">
+function pyHTML(n){
+  const chunks = syll(n);
+  let out = "";
+  chunks.forEach((c,i)=>{
+    const tone = +c.slice(-1) || 5;
+    if(i>0 && startsAOE(c)) out += "'";
+    out += `<span class="t${tone}">${escapeHtml(markOne(c))}</span>`;
+  });
+  return out;
+}
+
+// marked pinyin -> toneless (keeps apostrophes/case/ü, only strips tone diacritics)
+function strip(py){
+  let out = "";
+  for(const ch of String(py)){
+    const lower = ch.toLowerCase();
+    if(BASE_OF[lower] !== undefined){
+      const base = BASE_OF[lower];
+      const isUpper = ch === ch.toUpperCase() && ch !== ch.toLowerCase();
+      out += isUpper ? base.toUpperCase() : base;
+    } else out += ch;
+  }
+  return out;
+}
+
+// ------------------------------------------------------- valid syllable table
+// Standard Mandarin initial x final grid, spelled as actually written
+// (zero-initial uses y/w forms; j/q/x drop the ü dots).
+const INITIAL_FINALS = {
+  "b": ["a","ai","an","ang","ao","o","ei","en","eng","i","ie","iao","ian","in","iang","ing","u"],
+  "p": ["a","ai","an","ang","ao","o","ei","en","eng","ou","i","ie","iao","ian","in","iang","ing","u"],
+  "m": ["a","ai","an","ang","ao","o","ei","en","eng","ou","i","ie","iao","iu","ian","in","iang","ing","u"],
+  "f": ["a","an","ang","ei","en","eng","ou","u","o"],
+  "d": ["a","ai","an","ang","ao","e","ei","en","eng","ong","i","ia","ie","iao","iu","ian","ing","ou","u","uo","ui","uan","un"],
+  "t": ["a","ai","an","ang","ao","e","eng","ong","i","ian","iao","ie","ing","ou","u","uo","ui","uan","un"],
+  "n": ["a","ai","an","ang","ao","e","ei","en","eng","i","ian","iang","iao","ie","in","ing","iu","ong","ou","u","uan","uo","ü","üe"],
+  "l": ["a","ai","an","ang","ao","e","ei","eng","i","ia","ian","iang","iao","ie","in","ing","iu","ong","ou","u","uan","un","uo","ü","üe","o"],
+  "g": ["a","ai","an","ang","ao","e","ei","en","eng","ong","ou","u","ua","uai","uan","uang","ui","un","uo"],
+  "k": ["a","ai","an","ang","ao","e","ei","en","eng","ong","ou","u","ua","uai","uan","uang","ui","un","uo"],
+  "h": ["a","ai","an","ang","ao","e","ei","en","eng","ong","ou","u","ua","uai","uan","uang","ui","un","uo"],
+  "j": ["i","ia","ian","iang","iao","ie","in","ing","iong","iu","u","uan","ue","un"],
+  "q": ["i","ia","ian","iang","iao","ie","in","ing","iong","iu","u","uan","ue","un"],
+  "x": ["i","ia","ian","iang","iao","ie","in","ing","iong","iu","u","uan","ue","un"],
+  "zh":["a","ai","an","ang","ao","e","ei","en","eng","i","ong","ou","u","ua","uai","uan","uang","ui","un","uo"],
+  "ch":["a","ai","an","ang","ao","e","en","eng","i","ong","ou","u","ua","uai","uan","uang","ui","un","uo"],
+  "sh":["a","ai","an","ang","ao","e","ei","en","eng","i","ou","u","ua","uai","uan","uang","ui","un","uo"],
+  "r": ["an","ang","ao","e","en","eng","i","ong","ou","u","ua","uan","ui","un","uo"],
+  "z": ["a","ai","an","ang","ao","e","ei","en","eng","i","ong","ou","u","uan","ui","un","uo"],
+  "c": ["a","ai","an","ang","ao","e","en","eng","i","ong","ou","u","uan","ui","un","uo"],
+  "s": ["a","ai","an","ang","ao","e","en","eng","i","ong","ou","u","uan","ui","un","uo"],
+  "": ["a","o","e","ai","ei","ao","ou","an","en","ang","eng","er",
+       "yi","ya","ye","yao","you","yan","yin","yang","ying","yong",
+       "wu","wa","wo","wai","wei","wan","wen","wang","weng",
+       "yu","yue","yuan","yun","yo"]
+};
+const INITIALS_BY_LEN = Object.keys(INITIAL_FINALS).filter(k=>k).sort((a,b)=>b.length-a.length);
+
+const VALID_SYLLABLES = new Set();
+Object.keys(INITIAL_FINALS).forEach(init=>{
+  INITIAL_FINALS[init].forEach(fin=>VALID_SYLLABLES.add(init+fin));
+});
+
+function splitSyllable(toneless){
+  const s = toneless.toLowerCase();
+  for(const init of INITIALS_BY_LEN){
+    if(s.indexOf(init)===0){
+      const rest = s.slice(init.length);
+      if(INITIAL_FINALS[init].indexOf(rest)>=0) return {initial:init, final:rest};
+    }
+  }
+  if(INITIAL_FINALS[""].indexOf(s)>=0) return {initial:"", final:s};
+  return null;
+}
+
+// ------------------------------------------------------------- type checking
+function pipeline(s){
+  return String(s).toLowerCase()
+    .replace(/u:/g,"v")
+    .replace(/ü/g,"v")
+    .replace(/['\-\s]/g,"");
+}
+
+// all numbered forms a learner might legitimately type: the exact number
+// string, plus neutral tone (digit "5") written as "0" or omitted per syllable.
+function numberedCandidates(n){
+  const chunks = syll(n);
+  const perChunk = chunks.map(c=>{
+    const letters = c.slice(0,-1), digit = c.slice(-1);
+    return digit==="5" ? [letters+"5", letters+"0", letters] : [c];
+  });
+  let combos = [""];
+  perChunk.forEach(opts=>{
+    const next = [];
+    combos.forEach(prefix=>opts.forEach(o=>next.push(prefix+o)));
+    combos = next;
+  });
+  return combos.map(pipeline);
+}
+
+function normType(input){ return pipeline(input); }
+
+function acceptTypeAnswer(input, entry){
+  const target = new Set(numberedCandidates(entry.n));
+  target.add(pipeline(entry.py));
+  return target.has(normType(input));
+}
+
+// ------------------------------------------------------------- distractors
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+const INITIAL_PAIRS = [["b","p"],["d","t"],["g","k"],["j","q"],["zh","ch"],["z","c"],["zh","z"],["ch","c"],["sh","s"],["j","zh"],["q","ch"],["x","sh"],["n","l"],["r","l"],["f","h"]];
+const FINAL_PAIRS = [["an","ang"],["en","eng"],["in","ing"],["ian","iang"],["uan","uang"],["ao","ou"],["ai","ei"],["e","o"]];
+
+function confusablesFor(list, item){
+  const out = [];
+  list.forEach(p=>{ if(p[0]===item) out.push(p[1]); if(p[1]===item) out.push(p[0]); });
+  return out;
+}
+
+// entry: {n,...}; pool: VOCAB array (for the same-syllable-count fallback).
+function distractors(entry, pool){
+  const chunks = syll(entry.n);
+  const results = [];
+  const seen = new Set([pipeline(entry.n)]);
+
+  function tryAdd(candChunks){
+    if(results.length>=3) return;
+    const candN = candChunks.join("");
+    const key = pipeline(candN);
+    if(seen.has(key)) return;
+    const ok = candChunks.every(c=>{
+      const letters = c.slice(0,-1).toLowerCase();
+      // A chunk whose letters are exactly "r" (e.g. the last syllable of yi4hui4r5,
+      // 一会儿) is the retroflex erhua suffix on the preceding syllable, not a
+      // standalone syllable — it will never appear in VALID_SYLLABLES, so it's
+      // exempted from that check here rather than always sitting at the end.
+      return letters==="r" || VALID_SYLLABLES.has(letters);
+    });
+    if(!ok) return;
+    seen.add(key);
+    results.push({n:candN, py:mark(candN)});
+  }
+
+  // 1. same syllables, one tone changed
+  for(let i=0;i<chunks.length && results.length<3;i++){
+    const letters = chunks[i].slice(0,-1), origTone = chunks[i].slice(-1);
+    // neutral tone (5) never occurs on the first syllable of a word in real Mandarin,
+    // so it's a trivially-eliminable distractor there — exclude it.
+    const toneChoices = ["1","2","3","4","5"].filter(t=>t!==origTone && !(i===0 && t==="5"));
+    shuffle(toneChoices).forEach(t=>{
+      if(results.length<3) tryAdd(chunks.map((c,j)=>j===i?letters+t:c));
+    });
+  }
+  // 2. confusable initial swap
+  for(let i=0;i<chunks.length && results.length<3;i++){
+    const letters = chunks[i].slice(0,-1), tone = chunks[i].slice(-1);
+    const sp = splitSyllable(letters);
+    if(!sp || !sp.initial) continue;
+    shuffle(confusablesFor(INITIAL_PAIRS, sp.initial)).forEach(alt=>{
+      if(results.length>=3) return;
+      if(INITIAL_FINALS[alt] && INITIAL_FINALS[alt].indexOf(sp.final)>=0){
+        tryAdd(chunks.map((c,j)=>j===i?(alt+sp.final+tone):c));
+      }
+    });
+  }
+  // 3. confusable final swap
+  for(let i=0;i<chunks.length && results.length<3;i++){
+    const letters = chunks[i].slice(0,-1), tone = chunks[i].slice(-1);
+    const sp = splitSyllable(letters);
+    if(!sp) continue;
+    const alts = confusablesFor(FINAL_PAIRS, sp.final);
+    if(sp.final==="u" && (sp.initial==="n"||sp.initial==="l")) alts.push("ü");
+    if(sp.final==="ü" && (sp.initial==="n"||sp.initial==="l")) alts.push("u");
+    shuffle(alts).forEach(alt=>{
+      if(results.length>=3) return;
+      if(INITIAL_FINALS[sp.initial] && INITIAL_FINALS[sp.initial].indexOf(alt)>=0){
+        tryAdd(chunks.map((c,j)=>j===i?(sp.initial+alt+tone):c));
+      }
+    });
+  }
+  // 4. another vocab word, same syllable count
+  if(results.length<3 && pool && pool.length){
+    shuffle(pool.filter(v=>v.n!==entry.n && syll(v.n).length===chunks.length)).forEach(v=>{
+      if(results.length<3) tryAdd(syll(v.n));
+    });
+  }
+  return results.slice(0,3);
+}
+
+// --------------------------------------------------------------- placement
+// Splits a vocab pool into placement buckets: bucketSpec = [[level, bucketCount], ...].
+// Default matches the spec: HSK1x3, HSK2x3, HSK3x4, HSK4x6 (16 buckets).
+function strata(pool, bucketSpec){
+  const spec = bucketSpec || [[1,3],[2,3],[3,4],[4,6]];
+  const out = [];
+  spec.forEach(([lv,nb])=>{
+    const list = pool.filter(v=>v.lv===lv);
+    const nsets = Math.ceil(list.length/10);
+    const per = nsets/nb;
+    for(let b=0;b<nb;b++){
+      const s0 = Math.floor(b*per), s1 = Math.max(s0+1, Math.floor((b+1)*per));
+      out.push({lv, s0, s1, words: list.slice(s0*10, s1*10)});
+    }
+  });
+  return out;
+}
+
+// Decides where placement stops, given per-bucket results res=[{r,n},...] in bucket order.
+// A single bucket's raw accuracy is noisy at 2-3 items (1 miss = 50-67%), so passing is
+// judged on a rolling window of up to 3 buckets (the current one plus its two predecessors):
+// bucket i passes if that window's combined accuracy is >=75% AND bucket i itself has
+// at least 1 right answer (so an all-wrong bucket can never pass on a good window alone).
+// Returns the index of the first failing bucket, or null if every bucket passed.
+function placementStopIndex(res){
+  for(let i=0;i<res.length;i++){
+    const lo = Math.max(0, i-2);
+    let wr = 0, wn = 0;
+    for(let j=lo;j<=i;j++){ wr += res[j].r; wn += res[j].n; }
+    const windowAcc = wn ? wr/wn : 1;
+    const bucketOk = res[i].r >= 1;
+    if(!(windowAcc >= 0.75 && bucketOk)) return i;
+  }
+  return null;
+}
+
+// Validates the shape of imported progress JSON before it replaces the live prog object.
+// Returns {ok:true, data} or {ok:false, reason}.
+function validateProgShape(data){
+  if(!data || typeof data !== "object" || Array.isArray(data)) return {ok:false, reason:"not a JSON object"};
+  if(data.v !== undefined && data.v !== 1) return {ok:false, reason:`unknown progress version ${data.v}`};
+  if(data.w !== undefined){
+    if(!data.w || typeof data.w !== "object" || Array.isArray(data.w)) return {ok:false, reason:"w must be an object"};
+    for(const k of Object.keys(data.w)){
+      const p = data.w[k];
+      if(!p || typeof p !== "object" || Array.isArray(p)) return {ok:false, reason:`w.${k} must be an object`};
+      for(const f of ["r","w","s"]) if(p[f] !== undefined && typeof p[f] !== "number") return {ok:false, reason:`w.${k}.${f} must be a number`};
+      if(p.prov !== undefined && typeof p.prov !== "number" && typeof p.prov !== "boolean") return {ok:false, reason:`w.${k}.prov must be a number or boolean`};
+      if(p.d !== undefined && typeof p.d !== "number" && typeof p.d !== "boolean") return {ok:false, reason:`w.${k}.d must be a number or boolean`};
+    }
+  }
+  if(data.sets !== undefined){
+    if(!data.sets || typeof data.sets !== "object" || Array.isArray(data.sets)) return {ok:false, reason:"sets must be an object"};
+    for(const k of Object.keys(data.sets)){
+      if(!["1","2","3","4"].includes(k)) return {ok:false, reason:`sets has unknown level "${k}"`};
+      if(typeof data.sets[k] !== "number") return {ok:false, reason:`sets.${k} must be a number`};
+    }
+  }
+  if(data.lessons !== undefined && (!data.lessons || typeof data.lessons !== "object" || Array.isArray(data.lessons))) return {ok:false, reason:"lessons must be an object"};
+  if(data.sessions !== undefined && typeof data.sessions !== "number") return {ok:false, reason:"sessions must be a number"};
+  return {ok:true, data};
+}
+
+// ------------------------------------------------------------------- export
+const API = { syll, mark, tones, strip, pyHTML, normType, acceptTypeAnswer, distractors, strata,
+  placementStopIndex, validateProgShape,
+  VALID_SYLLABLES, INITIAL_FINALS, splitSyllable, pipeline, numberedCandidates, markSyllable };
+if(typeof module!=="undefined" && module.exports) module.exports = API;
+if(root) root.PinyinCore = API;
+})(typeof window!=="undefined" ? window : (typeof globalThis!=="undefined" ? globalThis : null));
+</script>
+<script>
+"use strict";
+const PC = window.PinyinCore;
+const $ = id => document.getElementById(id);
+const shuffle = a => { for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
+const pick = (a,n) => shuffle(a.slice()).slice(0,n);
+const escapeHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+// ===================== progress =====================
+let prog = { v:1, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null };
+const store = {
+  async load(){
+    try{ if(window.storage){ const r = await window.storage.get("hsk_pinyin"); if(r) prog = Object.assign(prog, JSON.parse(r.value)); return; } }catch(e){}
+    try{ const v = localStorage.getItem("hsk_pinyin"); if(v) prog = Object.assign(prog, JSON.parse(v)); }catch(e){}
+  },
+  async save(){
+    const s = JSON.stringify(prog);
+    try{ if(window.storage){ await window.storage.set("hsk_pinyin", s); return; } }catch(e){}
+    try{ localStorage.setItem("hsk_pinyin", s); }catch(e){}
+  }
+};
+
+function markWord(w, ok){
+  const p = prog.w[w] || {r:0,w:0,s:0};
+  if(ok){ p.r++; p.s++; } else { p.w++; p.s=0; }
+  if(p.prov && (p.s>=3 || !ok)) delete p.prov;
+  prog.w[w] = p; store.save();
+}
+const mastered = w => (prog.w[w]||{}).s >= 3;
+const weakScore = w => { const p = prog.w[w]||{r:0,w:0,s:0}; return p.w*3 - p.s; };
+function weakFirst(list, n){
+  return list.slice().sort((a,b)=>(weakScore(b.w)-weakScore(a.w)) + (Math.random()-0.5)).slice(0,n);
+}
+function provPick(list, n){ return shuffle(list.filter(x=>(prog.w[x.w]||{}).prov && !mastered(x.w))).slice(0,n); }
+
+function levelList(lv){ return VOCAB.filter(v=>v.lv===lv); }
+function nSets(lv){ return Math.ceil(levelList(lv).length/10); }
+function learnedWords(){
+  // Words from completed sets, plus any word explicitly flagged `d` (drilled ahead of
+  // its set via the Words-tab pager). Only the `d` flag counts here — not just "has a
+  // prog.w entry" — so that placement's retake re-baseline (which deletes `d`-flagged
+  // and placement-only-provisional entries) actually shrinks the pool instead of every
+  // leftover prog.w record resurrecting a word outside the freshly placed range.
+  const out = [];
+  [1,2,3,4].forEach(lv=>{ out.push(...levelList(lv).slice(0, (prog.sets[lv]||0)*10)); });
+  const seen = new Set(out.map(w=>w.w));
+  VOCAB.forEach(v=>{ if(!seen.has(v.w) && prog.w[v.w] && prog.w[v.w].d){ out.push(v); seen.add(v.w); } });
+  return out;
+}
+// validateProgShape() and placementStopIndex() live in pinyin_core.js (PC.validateProgShape,
+// PC.placementStopIndex) so the app and the node checks share one definition.
+function nextNewSet(){
+  for(const lv of [1,2,3,4]){ if((prog.sets[lv]||0) < nSets(lv)) return {lv, set: prog.sets[lv]||0}; }
+  return null;
+}
+function lessonsUndone(){ return LESSONS.filter(l=>!prog.lessons[l.id]); }
+
+// ===================== speech =====================
+const SS = window.speechSynthesis || null;
+const hasSpeech = !!(SS && window.SpeechSynthesisUtterance);
+let zhVoice = null, noticeShown = false;
+if(hasSpeech){
+  const pv = () => { const v = SS.getVoices(); zhVoice = v.find(x=>/^zh(-|_)?(CN|Hans)?/i.test(x.lang)) || v.find(x=>/zh/i.test(x.lang)) || null; };
+  pv(); SS.onvoiceschanged = pv;
+}
+function say(t){
+  if(!hasSpeech) return;
+  try{ SS.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang="zh-CN"; if(zhVoice) u.voice=zhVoice; u.rate=0.85; SS.speak(u); }catch(e){}
+}
+function speechNotice(){
+  if(hasSpeech || noticeShown) return "";
+  noticeShown = true;
+  return `<div class="warn">This browser has no Chinese text-to-speech voice, so listening items show the word instead of playing audio.</div>`;
+}
+
+// ===================== tone contour glyph =====================
+const CONTOUR = {
+  1: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 4 L20 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  2: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 11 L20 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  3: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 5 Q9 13 11 13 Q13 13 20 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  4: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 2 L20 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  5: `<svg class="contour" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="2.4" fill="currentColor"/></svg>`
+};
+function contourFor(n){
+  const tt = PC.syll(n).map(c=>+c.slice(-1)||5);
+  const last = tt[tt.length-1] || 1;
+  return `<span class="t${last}">${CONTOUR[last]}</span>`;
+}
+
+// ===================== generic drill runner =====================
+// item: {kind:'mc'|'type', label, html, opts?, a?, reveal, onAnswer?, mount?, check?}
+let D = null;
+function drill(items, onDone, summary){ D = { q: shuffle(items.slice()), right:0, seen:0, miss:[], onDone, summary }; dnext(); }
+function setScore(r,s,left){ $("score").textContent = s ? `${r} / ${s}` + (left!=null ? `  ·  ${left} left` : "") : ""; }
+function announce(html){
+  const el = $("live"); if(!el) return;
+  const tmp = document.createElement("div"); tmp.innerHTML = html || "";
+  el.textContent = tmp.textContent || "";
+}
+function showReveal(html){
+  const rv = $("rv"); if(!rv) return;
+  rv.innerHTML = html;
+  rv.style.display = html ? "block" : "none";
+  if(html){ rv.style.opacity = "0"; requestAnimationFrame(()=>{ rv.style.opacity = "1"; }); }
+  announce(html);
+}
+
+function dnext(){
+  if(!D) return;
+  const P = $("panel");
+  setScore(D.right, D.seen, D.q.length);
+  if(!D.q.length){
+    const { right, seen, miss, onDone, summary } = D;
+    P.innerHTML = `<div class="done"><h2>${right} / ${seen}</h2>${summary ? summary(miss) : ""}<button class="next" id="ok">Continue</button></div>`;
+    // Drill is finished: clear state now, before handing control back, so a stray
+    // keystroke or the previous screen's stale handler can't act on an empty queue.
+    D = null; drillKeyHandler = null;
+    $("ok").onclick = onDone;
+    return;
+  }
+  const it = D.q.shift();
+  if(it.kind === "type"){ renderTypeItem(it); }
+  else { renderMcItem(it); }
+}
+
+function renderMcItem(it){
+  const P = $("panel");
+  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts" id="o"></div><div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  if(it.mount) it.mount();
+  const opts = shuffle(it.opts.slice());
+  const container = $("o");
+  let answered = false;
+  opts.forEach((o,i)=>{
+    const b = document.createElement("button");
+    b.innerHTML = `<b class="num">${i+1}</b>${escapeHtml(o)}`;
+    b.onclick = () => {
+      if(answered) return; answered = true;
+      [...container.children].forEach(x=>{ x.disabled = true; if(x.dataset.v === it.a) x.classList.add("ok"); });
+      const ok = o === it.a;
+      if(!ok) b.classList.add("bad");
+      D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
+      if(it.onAnswer) it.onAnswer(ok);
+      showReveal(it.reveal || "");
+      $("nx").style.display = "block"; setScore(D.right, D.seen, D.q.length);
+    };
+    b.dataset.v = o;
+    container.appendChild(b);
+  });
+  $("nx").onclick = dnext;
+  drillKeyHandler = e => {
+    if(!D) return;
+    const nx = $("nx");
+    if(e.key >= "1" && e.key <= String(opts.length) && !answered){ container.children[+e.key-1].click(); }
+    else if(e.key === "Enter" && nx && nx.style.display !== "none"){ dnext(); }
+    else if(e.key === "Escape"){ quitDrill(); }
+  };
+}
+
+function renderTypeItem(it){
+  const P = $("panel");
+  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}
+    <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="type pinyin…">
+    <button class="next" id="submit">Check</button>
+    <div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  if(it.mount) it.mount();
+  const input = $("tin"); input.focus();
+  let answered = false;
+  function submit(){
+    if(answered) return; if(!input.value.trim()) return;
+    answered = true; input.disabled = true; $("submit").style.display = "none";
+    const ok = it.check(input.value);
+    D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
+    if(it.onAnswer) it.onAnswer(ok);
+    showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.reveal||""));
+    $("nx").style.display = "block"; setScore(D.right, D.seen, D.q.length);
+  }
+  $("submit").onclick = submit;
+  $("nx").onclick = dnext;
+  drillKeyHandler = e => {
+    if(!D) return;
+    if(e.key === "Enter"){ answered ? dnext() : submit(); }
+    else if(e.key === "Escape"){
+      // Escape while the input is focused blurs it first; a second Escape then quits.
+      // This stops a learner mid-word-typing from losing the whole drill on one stray key.
+      if(document.activeElement === input){ input.blur(); return; }
+      quitDrill();
+    }
+  };
+}
+
+let drillKeyHandler = null;
+document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
+function quitDrill(){ D = null; drillKeyHandler = null; render(); }
+
+// ===================== vocab drill item builders =====================
+function readItem(entry, pool){
+  const ds = PC.distractors(entry, pool);
+  const opts = [PC.mark(entry.n), ...ds.map(d=>d.py)];
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  return { kind:"mc", label:"Pick the pinyin", html:`<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>`,
+    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+}
+function listenItem(entry, pool){
+  const ds = PC.distractors(entry, pool);
+  const opts = [PC.mark(entry.n), ...ds.map(d=>d.py)];
+  const rv = `<div class="big" style="font-size:36px">${escapeHtml(entry.w)}</div><div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  return { kind:"mc", label:"Listen, then pick the pinyin", html: speechNotice() + (hasSpeech
+      ? `<div class="listen-stage"><button class="replay" id="rp" aria-label="Replay">▶</button></div>`
+      : `<div class="big">${escapeHtml(entry.w)}</div>`),
+    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
+    mount: () => { if(hasSpeech){ say(entry.w); $("rp").onclick = ()=>say(entry.w); } } };
+}
+function toneItem(entry){
+  const chunks = PC.syll(entry.n);
+  const answer = PC.tones(entry.n);
+  const toneless = chunks.map(c=>c.slice(0,-1)).join(" ");
+  const opts = new Set([answer]);
+  let guard = 0;
+  while(opts.size < 4 && guard++ < 40){
+    const cand = chunks.map(c => Math.random()<0.6 ? (c.slice(0,-1)+ (1+Math.floor(Math.random()*5))) : c);
+    opts.add(cand.map(c=>c.slice(-1)).join("-"));
+  }
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  return { kind:"mc", label:"Which tone pattern?", html:`<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(toneless)}</div>`,
+    opts:[...opts], a: answer, reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+}
+function typeItem(entry){
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div>`;
+  return { kind:"type", label:"Type the pinyin (numbers or tone marks)",
+    html: `<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>` + (hasSpeech ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">▶</button></div>` : ""),
+    mount: () => { if(hasSpeech) $("rp2").onclick = ()=>say(entry.w); },
+    check: val => PC.acceptTypeAnswer(val, entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+}
+function missSummary(miss){
+  const u = [...new Map(miss.map(m=>[m.reveal, m])).values()];
+  return u.length ? `<p class="q">Missed:</p>${u.map(m=>`<div class="stmt">${m.reveal}</div>`).join("")}` : "<p class='q'>Clean.</p>";
+}
+
+// ===================== lesson item wrapper =====================
+function lessonItem(it){
+  return { kind:"mc", label: it.q,
+    html: it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">▶</button></div>` : "",
+    mount: () => { if(it.say && hasSpeech){ say(it.say); $("rpl").onclick = ()=>say(it.say); } },
+    opts: it.opts, a: it.a, reveal: `<div>${escapeHtml(it.rv||"")}</div>` };
+}
+
+// ===================== tabs =====================
+let tab = "today";
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); tab = b.dataset.t; D = null; drillKeyHandler = null;
+  todayStepState = null; soundsSel = null; wordsSet = null; testSel = null;
+  render();
+});
+function render(){
+  D = null; drillKeyHandler = null;
+  $("htitle").textContent = { today:"Today", sounds:"Sounds", words:"Words", test:"Test", progress:"Progress" }[tab];
+  setScore(0,0);
+  ({ today: todayRender, sounds: soundsRender, words: wordsRender, test: testRender, progress: progressRender })[tab]();
+}
+
+// ===================== Today =====================
+function pathStrip(){
+  const stages = [
+    { label:"Sounds", frac: LESSONS.length ? Object.keys(prog.lessons).length/LESSONS.length : 0 },
+    ...[1,2,3,4].map(lv=>({ label:"HSK"+lv, frac: (prog.sets[lv]||0)/nSets(lv) }))
+  ];
+  return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.label}</div>`).join("")}</div>`;
+}
+let todayStepState = null;
+function todayRender(){
+  setScore(0,0);
+  const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet(); const lu = lessonsUndone();
+  const n = (prog.sessions||0) + 1;
+  const steps = [
+    ["Review", lw.length ? "15 items, weakest first" : "nothing learned yet — skipped"],
+    ["Learn", lu.length ? `Sounds: ${lu[0].title}` : (nn ? `HSK ${nn.lv}, set ${nn.set+1}` : "everything covered")],
+    ["Listen", lw.length ? "10 items" : "skipped until something is learned"],
+    ["Type", lw.length ? "8 items" : "skipped until something is learned"]
+  ];
+  P.innerHTML = `${pathStrip()}
+    ${(!lw.length && !Object.keys(prog.lessons).length) ? `<div class="stmt">New here? Take the Placement test in the Test tab so today starts where your knowledge ends.</div>` : ""}
+    <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
+    <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
+    <div class="actions"><button class="next" id="go">Start today</button></div>`;
+  $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
+}
+function todayStep(){
+  const lw = learnedWords(); const nn = nextNewSet(); const lu = lessonsUndone();
+  const s = todayStepState.step++;
+  if(s === 0){
+    if(lw.length >= 5){
+      const pv = provPick(lw, 5);
+      const rest = weakFirst(lw.filter(x=>!pv.includes(x)), 15-pv.length);
+      const pool = [...rest, ...pv];
+      const items = shuffle(pool.map(w => { const r = Math.random(); return r<0.4?readItem(w,lw):r<0.7?toneItem(w):listenItem(w,lw); }));
+      drill(items, todayStep, missSummary); return;
+    }
+    return todayStep();
+  }
+  if(s === 1){
+    if(lu.length){
+      const lesson = lu[0];
+      lessonTeach(lesson, () => { prog.lessons[lesson.id] = 1; store.save(); todayStep(); });
+      return;
+    }
+    if(nn){
+      const list = levelList(nn.lv).slice(nn.set*10, nn.set*10+10);
+      vocabTeach(list, nn.lv, () => {
+        const items = [];
+        list.forEach(w => items.push(readItem(w, levelList(nn.lv)), toneItem(w)));
+        drill(shuffle(items), () => { prog.sets[nn.lv] = nn.set+1; store.save(); todayStep(); }, missSummary);
+      });
+      return;
+    }
+    return todayStep();
+  }
+  if(s === 2){
+    if(lw.length >= 4){ drill(weakFirst(lw,10).map(w=>listenItem(w,lw)), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 3){
+    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>typeItem(w)), todayFinish, missSummary); return; }
+    return todayFinish();
+  }
+  todayFinish();
+}
+function todayFinish(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  prog.sessions = (prog.sessions||0) + 1; store.save();
+  const P = $("panel");
+  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p><button class="next" id="again">Back to Today</button></div>`;
+  $("again").onclick = todayRender;
+}
+function vocabTeach(list, lv, onDrill){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<p class="q">HSK ${lv}, new set. Tap a word to hear it.</p>
+    <div id="tl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
+  const tl = $("tl");
+  list.forEach(w => {
+    const row = document.createElement("div"); row.className = "rowset";
+    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span>`;
+    row.onclick = () => say(w.w);
+    row.style.cursor = "pointer";
+    tl.appendChild(row);
+  });
+  $("dr").onclick = onDrill;
+}
+// onBack is optional: when given, lessonTeach renders its own back button (as part
+// of the same innerHTML write) instead of the caller pre-rendering one, since any
+// renderer that overwrites #panel after another element wired its handler destroys
+// that element and $(id).onclick throws on the now-null lookup.
+function lessonTeach(lesson, onDone, onBack){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${escapeHtml(lesson.blurb)}</p>
+    <div id="cards"></div><div class="actions"><button class="next" id="dr">Drill</button></div>`;
+  if(onBack) $("back").onclick = onBack;
+  const cw = $("cards");
+  lesson.cards.forEach(c => {
+    const el = document.createElement("div"); el.className = "card-teach";
+    el.innerHTML = `<h3>${escapeHtml(c.h)}</h3><p>${c.body}</p>
+      ${c.rows ? `<div>${c.rows.map(r=>`<div class="rowset"><span class="py">${escapeHtml(r[0])}</span><span class="zh">${escapeHtml(r[1])}</span><span class="en">${escapeHtml(r[2])}</span></div>`).join("")}</div>` : ""}
+      ${c.say ? `<div class="taplist">${c.say.map((s,i)=>`<button data-s="${i}">▶ ${escapeHtml(s)}</button>`).join("")}</div>` : ""}`;
+    if(c.say) el.querySelectorAll("[data-s]").forEach((b,i)=>b.onclick=()=>say(c.say[i]));
+    cw.appendChild(el);
+  });
+  $("dr").onclick = () => drill(shuffle(lesson.items.map(lessonItem)), onDone, missSummary);
+}
+
+// ===================== Sounds =====================
+let soundsSel = null;
+function soundsRender(){
+  setScore(0,0);
+  const P = $("panel");
+  if(soundsSel === "chart"){ chartRender(); return; }
+  if(soundsSel != null){
+    const lesson = LESSONS[soundsSel];
+    lessonTeach(lesson,
+      () => { prog.lessons[lesson.id] = 1; store.save(); soundsSel = null; soundsRender(); },
+      () => { soundsSel = null; soundsRender(); });
+    return;
+  }
+  const done = Object.keys(prog.lessons).length;
+  P.innerHTML = `<p class="q">${LESSONS.length} lessons on sounds and tones. ${done} done.</p>
+    <div class="plist">${LESSONS.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>
+    <button class="ghost" id="chart" style="margin-top:10px">Pinyin reference chart</button>`;
+  P.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ soundsSel = +b.dataset.i; soundsRender(); });
+  $("chart").onclick = () => { soundsSel = "chart"; soundsRender(); };
+}
+const REF_INITIALS = ["b","p","m","f","d","t","n","l","g","k","h","j","q","x","zh","ch","sh","r","z","c","s"];
+const REF_FINALS = ["a","o","e","i","u","ü","ai","ei","ao","ou","an","en","ang","eng","ong","ia","ie","iao","iu","ian","in","iang","ing","iong","ua","uo","uai","ui","uan","un","uang","ueng","üe","üan","ün","er"];
+function chartRender(){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<div class="row"><button id="back">‹ lessons</button></div>
+    <p class="q">Initials — tap to hear.</p>
+    <div class="taplist" id="ini"></div>
+    <p class="q" style="margin-top:14px">Finals — tap to hear.</p>
+    <div class="taplist" id="fin"></div>`;
+  $("back").onclick = () => { soundsSel = null; soundsRender(); };
+  $("ini").innerHTML = REF_INITIALS.map(x=>`<button data-s="${x}">${x}</button>`).join("");
+  $("fin").innerHTML = REF_FINALS.map(x=>`<button data-s="${x}">${x}</button>`).join("");
+  P.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>say(b.dataset.s));
+}
+
+// ===================== Words =====================
+let wordsLv = 1, wordsSet = null;
+function wordsRender(){
+  setScore(0,0);
+  const P = $("panel");
+  const list = levelList(wordsLv); const total = nSets(wordsLv); const done = prog.sets[wordsLv]||0;
+  if(wordsSet == null) wordsSet = Math.min(done, total-1);
+  const set = list.slice(wordsSet*10, wordsSet*10+10);
+  P.innerHTML = `<div class="row">${[1,2,3,4].map(lv=>`<button data-l="${lv}" class="${lv===wordsLv?'on':''}">HSK ${lv}</button>`).join("")}</div>
+    <div class="row"><button id="pv">‹</button><button class="on">Set ${wordsSet+1} / ${total}${wordsSet<done?' ✓':''}</button><button id="nx">›</button><button id="jump">next new</button><button id="rev">review</button></div>
+    <div id="wl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
+  P.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ wordsLv=+b.dataset.l; wordsSet=null; wordsRender(); });
+  $("pv").onclick = () => { wordsSet = Math.max(0, wordsSet-1); wordsRender(); };
+  $("nx").onclick = () => { wordsSet = Math.min(total-1, wordsSet+1); wordsRender(); };
+  $("jump").onclick = () => { wordsSet = Math.min(done, total-1); wordsRender(); };
+  const wl = $("wl");
+  set.forEach(w => {
+    const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
+    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
+    row.onclick = () => say(w.w);
+    wl.appendChild(row);
+  });
+  $("dr").onclick = () => {
+    const items = []; set.forEach(w => items.push(readItem(w, list), toneItem(w)));
+    // Only advance the level's set pointer when this was exactly the next unlearned
+    // set — drilling a set further ahead must not silently mark every skipped set
+    // as learned. Otherwise stamp these specific words with the `d` (drilled-ahead)
+    // flag so learnedWords() counts just them, not the whole set range.
+    drill(shuffle(items), () => {
+      if(wordsSet === (prog.sets[wordsLv]||0)){ prog.sets[wordsLv] = wordsSet+1; }
+      else { set.forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:0,w:0,s:0}; prog.w[w.w].d = 1; }); }
+      store.save(); wordsRender();
+    }, missSummary);
+  };
+  $("rev").onclick = () => {
+    const lw = learnedWords(); if(lw.length < 5){ alert("Finish a set first."); return; }
+    drill(weakFirst(lw, 15).map(w=>{ const r = Math.random(); return r<0.4?readItem(w,lw):r<0.7?toneItem(w):listenItem(w,lw); }), wordsRender, missSummary);
+  };
+}
+
+// ===================== Test (placement + free tests) =====================
+let testSel = null, PL = null;
+function testRender(){
+  setScore(0,0);
+  const P = $("panel");
+  if(testSel === "placement"){ placeRender(); return; }
+  P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
+    <div class="actions">
+      <button class="next" id="pl">Take Placement</button>
+      <div class="row" style="margin-top:8px;margin-bottom:0">
+        <button class="ghost" id="tListen" style="flex:1">Listen 20</button>
+        <button class="ghost" id="tType" style="flex:1">Type 20</button>
+        <button class="ghost" id="tTone" style="flex:1">Tones 20</button>
+      </div>
+    </div>`;
+  $("pl").onclick = () => { testSel = "placement"; testRender(); };
+  const need = () => { const lw = learnedWords(); if(lw.length < 8){ alert("Learn a few words first (Today or Words tab)."); return null; } return lw; };
+  $("tListen").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>listenItem(w,lw)), testRender, missSummary); };
+  $("tType").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>typeItem(w)), testRender, missSummary); };
+  $("tTone").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>toneItem(w)), testRender, missSummary); };
+}
+// strata() lives in pinyin_core.js (PC.strata) so the app and the node checks share one definition.
+function placeRender(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  const P = $("panel"); const lw = learnedWords();
+  P.innerHTML = `<div class="row"><button id="back">‹ test</button></div>
+    <p class="q">48 items: 8 foundation sound questions, then 40 words across HSK 1–4, meaning shown, pick the pinyin. No feedback until the end. Places you inside a level; skipped words stay in review as provisional.</p>
+    ${lw.length ? `<p class="q">Current: ${lw.length} words learned. Retaking resets set position and clears any provisional or drilled-ahead words that haven't stuck yet.</p>` : ""}
+    <div class="actions"><button class="next" id="go">Start placement</button></div>`;
+  $("back").onclick = () => { testSel = null; testRender(); };
+  $("go").onclick = () => {
+    const foundationPool = shuffle(LESSONS.flatMap(l=>l.items)).slice(0,8);
+    const st = PC.strata(VOCAB);
+    const bucketItems = [];
+    st.forEach((b,bi) => { const k = bi%2===0 ? 2 : 3; pick(b.words, k).forEach(w=>bucketItems.push({b:bi, w})); });
+    PL = { foundation:{items:foundationPool, i:0, right:0}, vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})), phase:"foundation" };
+    placeFoundationNext();
+  };
+}
+function placeFoundationNext(){
+  const P = $("panel"); const F = PL.foundation;
+  if(F.i >= F.items.length){ PL.phase="vocab"; placeVocabNext(); return; }
+  const it = F.items[F.i++]; setScore(F.i, F.items.length);
+  P.innerHTML = `<p class="q">Foundations ${F.i} / ${F.items.length}</p><p class="med">${escapeHtml(it.q)}</p>
+    ${it.say ? `<div class="listen-stage"><button class="replay" id="rp">▶</button></div>` : ""}
+    <div class="opts" id="o"></div>`;
+  if(it.say && hasSpeech){ say(it.say); $("rp").onclick = ()=>say(it.say); }
+  shuffle(it.opts.slice()).forEach(o => {
+    const b = document.createElement("button"); b.textContent = o;
+    b.onclick = () => { if(o===it.a) F.right++; placeFoundationNext(); };
+    $("o").appendChild(b);
+  });
+}
+function placeVocabNext(){
+  const P = $("panel"); const V = PL.vocab;
+  if(V.i >= V.items.length){ placeResult(); return; }
+  const it = V.items[V.i++]; const w = it.w; setScore(V.i, V.items.length);
+  const ds = PC.distractors(w, VOCAB);
+  P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p><div class="big">${escapeHtml(w.w)}</div><div class="en">${escapeHtml(w.en)}</div><div class="opts" id="o"></div>`;
+  shuffle([PC.mark(w.n), ...ds.map(d=>d.py)]).forEach(o => {
+    const b = document.createElement("button"); b.textContent = o;
+    b.onclick = () => { PL.res[it.b].n++; if(o===PC.mark(w.n)) PL.res[it.b].r++; placeVocabNext(); };
+    $("o").appendChild(b);
+  });
+}
+function placeResult(){
+  setScore(0,0);
+  const st = PL.st; const rows = [];
+  // Pass rule lives in pinyin_core.js (PC.placementStopIndex): a rolling window of up
+  // to 3 buckets must hit >=75% accuracy AND the current bucket needs at least 1 right,
+  // since a raw per-bucket cutoff at 2-3 items makes a single lucky/unlucky guess decide
+  // the whole bucket.
+  const stop = PC.placementStopIndex(PL.res);
+  st.forEach((b,i)=>{ const r = PL.res[i]; rows.push([b, r, r.n ? r.r/r.n : 1]); });
+  const passed = stop==null ? st.length : stop;
+  // Retaking placement re-baselines the review pool: drop anything that was only ever
+  // a placement guess that never actually stuck (provisional with no real streak yet)
+  // or was drilled ahead of its set from the Words tab (the `d` flag) — otherwise those
+  // leftover prog.w entries would resurrect words outside the freshly placed range via
+  // learnedWords()'s union, defeating the point of retaking.
+  Object.keys(prog.w).forEach(k => {
+    const p = prog.w[k];
+    if((p.prov && p.s <= 1) || p.d) delete prog.w[k];
+  });
+  prog.sets = {1:0,2:0,3:0,4:0};
+  for(let i=0;i<passed;i++){ const b = st[i]; prog.sets[b.lv] = Math.max(prog.sets[b.lv], b.s1); }
+  learnedWords().forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:1,w:0,s:1,prov:1}; });
+  if(PL.foundation.right >= 7) LESSONS.forEach(l=>prog.lessons[l.id]=1);
+  store.save();
+  const pos = stop==null ? "everything covered — go straight to Words and pick a set" : `HSK ${st[passed].lv}, set ${st[passed].s0+1}`;
+  const P = $("panel");
+  P.innerHTML = `<div class="done"><h2>Start at ${pos}</h2>
+    <p class="q">Foundations: ${PL.foundation.right} / 8 ${PL.foundation.right>=7?"— all Sounds lessons marked done":""}</p>
+    <table class="stats">${rows.map(([b,r,acc],i)=>`<tr><td>HSK ${b.lv} sets ${b.s0+1}–${b.s1}</td><td style="color:${i<passed?'var(--ok)':'var(--bad)'}">${r.r}/${r.n}</td></tr>`).join("")}</table>
+    <p class="q">${learnedWords().length} words freshly marked provisional and kept in review.</p>
+    <button class="next" id="ok">Go to Today</button></div>`;
+  $("ok").onclick = () => { document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on", x.dataset.t==="today")); tab="today"; testSel=null; render(); };
+}
+
+// ===================== Progress =====================
+function progressRender(){
+  setScore(0,0);
+  const P = $("panel");
+  const lwAll = learnedWords();
+  const rows = [1,2,3,4].map(lv => {
+    const list = levelList(lv); const learnedList = lwAll.filter(w=>w.lv===lv);
+    const masteredN = learnedList.filter(w=>mastered(w.w)).length;
+    return `<tr><td>HSK ${lv}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>`;
+  }).join("");
+  const weak = weakFirst(lwAll.filter(w=>weakScore(w.w)>0), 10);
+  P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No Chinese text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
+    <table class="stats">${rows}
+      <tr><td>Sounds</td><td>${Object.keys(prog.lessons).length} / ${LESSONS.length} lessons done</td></tr>
+      <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
+    <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
+    ${weak.map(w=>`<div class="rowset"><span class="zh">${escapeHtml(w.w)}</span><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></div>`).join("")}
+    <div class="row" style="margin-top:16px">
+      <button class="ghost" id="exp" style="flex:1">Export progress</button>
+      <button class="ghost" id="imp" style="flex:1">Import progress</button>
+    </div>
+    <div id="impbox" style="display:none;margin-top:10px">
+      <textarea id="imptxt" placeholder="Paste exported JSON here"></textarea>
+      <input type="file" id="impfile" accept="application/json" style="margin-top:8px">
+      <button class="next" id="doimport">Load</button>
+    </div>
+    <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
+  $("exp").onclick = () => {
+    const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "hsk_pinyin_progress.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  $("imp").onclick = () => { $("impbox").style.display = $("impbox").style.display==="none" ? "block" : "none"; };
+  $("impfile").onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { $("imptxt").value = r.result; }; r.readAsText(f); };
+  $("doimport").onclick = () => {
+    // Validation runs inside the try so a throw from a malformed-but-JSON-parseable
+    // shape becomes a rejection message too, instead of an uncaught error and a
+    // silent no-op.
+    try{
+      const data = JSON.parse($("imptxt").value);
+      const v = PC.validateProgShape(data);
+      if(!v.ok){ alert("That doesn't look like valid exported progress: " + v.reason); return; }
+      const prevTheme = prog.theme;
+      prog = Object.assign({v:1,w:{},sets:{1:0,2:0,3:0,4:0},lessons:{},sessions:0}, v.data, {v:1});
+      if(prog.theme === undefined) prog.theme = prevTheme; // imported progress with no theme keeps the current one
+      store.save(); applyTheme(); progressRender();
+    }catch(e){
+      alert("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
+    }
+  };
+  $("reset").onclick = () => {
+    if(!confirm("Reset all progress? This can't be undone.")) return;
+    prog = { v:1, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme };
+    store.save(); progressRender();
+  };
+}
+
+// ===================== theme =====================
+function applyTheme(){ document.documentElement.setAttribute("data-theme", prog.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")); }
+$("themebtn").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  prog.theme = cur === "dark" ? "light" : "dark";
+  applyTheme(); store.save();
+};
+
+// ===================== boot =====================
+(async function(){
+  await store.load();
+  applyTheme();
+  render();
+})();
+</script>
+</body>
+</html>
