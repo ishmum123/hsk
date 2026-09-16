@@ -1,6 +1,6 @@
 # HSK pinyin trainer
 
-Live: <URL to be filled>
+Live: https://ishmum123.github.io/hsk/
 
 A self-contained HTML app for learning HSK 1–4 pinyin: sounds, tones, and the pronunciation of ~1200 HSK 1–4 vocabulary words. No backend, no build tooling required to run — open `index.html` directly in a browser, or visit the live GitHub Pages URL above. All data and logic are inlined, so once the page has loaded it keeps working offline; the one exception is the Google Fonts `<link>` (falls back to the system font if unreachable, so the app still works, just without the custom typeface).
 
