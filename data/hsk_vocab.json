@@ -192,7 +192,7 @@
   "w": "你",
   "py": "nǐ",
   "n": "ni3",
-  "en": "you (informal, as opposed to courteous 您)",
+  "en": "you (informal)",
   "lv": 1
  },
  {
@@ -1480,7 +1480,7 @@
   "w": "您",
   "py": "nín",
   "n": "nin2",
-  "en": "you (courteous, as opposed to informal 你)",
+  "en": "you (courteous)",
   "lv": 2
  },
  {
@@ -3118,7 +3118,7 @@
   "w": "旧",
   "py": "jiù",
   "n": "jiu4",
-  "en": "old; opposite: new 新",
+  "en": "old; former",
   "lv": 3
  },
  {
@@ -3790,7 +3790,7 @@
   "w": "虽然",
   "py": "suīrán",
   "n": "sui1ran2",
-  "en": "although; even though…",
+  "en": "although; even though (often used correlatively with or etc)",
   "lv": 3
  },
  {
@@ -3930,7 +3930,7 @@
   "w": "超市",
   "py": "chāoshì",
   "n": "chao1shi4",
-  "en": "supermarket (abbr. for 超级市场)",
+  "en": "supermarket",
   "lv": 3
  },
  {
@@ -4301,7 +4301,7 @@
   "w": "之",
   "py": "zhī",
   "n": "zhi1",
-  "en": "(possessive particle, literary equivalent of 的); him",
+  "en": "(possessive particle); him",
   "lv": 4
  },
  {
@@ -4350,7 +4350,7 @@
   "w": "亚洲",
   "py": "Yàzhōu",
   "n": "Ya4zhou1",
-  "en": "Asia (abbr. for 亚细亚洲)",
+  "en": "Asia",
   "lv": 4
  },
  {
@@ -4574,7 +4574,7 @@
   "w": "俩",
   "py": "liǎ",
   "n": "lia3",
-  "en": "two (colloquial equivalent of 两个); both",
+  "en": "two; both",
   "lv": 4
  },
  {
@@ -5218,7 +5218,7 @@
   "w": "呀",
   "py": "ya",
   "n": "ya5",
-  "en": "particle equivalent to 啊 after a vowel, expressing…",
+  "en": "particle equivalent to after a vowel, expressing…",
   "lv": 4
  },
  {
@@ -7066,7 +7066,7 @@
   "w": "直接",
   "py": "zhíjiē",
   "n": "zhi2jie1",
-  "en": "direct (opposite: indirect 间接); immediate",
+  "en": "direct; immediate",
   "lv": 4
  },
  {
@@ -7752,7 +7752,7 @@
   "w": "词典",
   "py": "cídiǎn",
   "n": "ci2dian3",
-  "en": "dictionary; also written 辞典",
+  "en": "dictionary",
   "lv": 4
  },
  {

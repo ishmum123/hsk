@@ -44,14 +44,25 @@
      whose action is a button plus a row of secondary options after it). */
   .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px}
   .q{color:var(--mute);font-size:15px;margin:0 0 10px}
-  .big{font-size:52px;line-height:1.3;text-align:center;margin:6px 0 16px;font-weight:500;font-family:var(--zh)}
-  .med{font-size:22px;line-height:1.5;margin:2px 0 14px;font-family:var(--zh)}
+  /* v2's .big/.med stimuli are pinyin or English, not characters — the Chinese font
+     only belongs on elements that actually render a word's `w` field (see charSpan()
+     and its "zh" class rules below). */
+  .big{font-size:52px;line-height:1.3;text-align:center;margin:6px 0 16px;font-weight:500}
+  .med{font-size:22px;line-height:1.5;margin:2px 0 14px}
   .en{color:var(--mute);font-size:15px;text-align:center;margin-top:-8px;margin-bottom:14px}
   .opts{display:grid;gap:8px}
   .opts button{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:transparent;font-size:17px;color:var(--ink);line-height:1.35;min-height:48px;font-family:var(--font)}
   .opts button b.num{color:var(--mute);font-weight:500;margin-right:8px;font-size:14px}
   .opts button.ok{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
   .opts button.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+  /* Drill hero: the meaning choices are the main event on every meaning-centred item
+     (hear/read/recall), so they get more room and weight than a plain option list. */
+  .opts-hero button{font-size:18px;padding:18px 18px;min-height:58px;font-weight:500}
+  .hear-stage{display:flex;justify-content:center;margin:14px 0 22px}
+  .speaker{width:92px;height:92px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:36px;line-height:1;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  @keyframes speakerPulse{0%{transform:scale(1)}50%{transform:scale(1.12)}100%{transform:scale(1)}}
+  .speaker.speaking{animation:speakerPulse 0.9s ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .speaker.speaking{animation:none} }
   .reveal{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:none;font-size:15px}
   .reveal .py{font-size:20px;margin-bottom:4px}
   .next,.primary{margin-top:14px;width:100%;padding:14px;border:none;border-radius:12px;background:var(--ink);color:var(--bg);font-size:16px;min-height:48px;font-family:var(--font)}
@@ -130,8 +141,8 @@
 </div>
 <nav class="tabs" id="tabs">
   <button data-t="today" class="on"><span class="ic">◷</span>Today</button>
-  <button data-t="sounds"><span class="ic">〜</span>Sounds</button>
   <button data-t="words"><span class="ic">字</span>Words</button>
+  <button data-t="sounds"><span class="ic">〜</span>Sounds</button>
   <button data-t="test"><span class="ic">✓</span>Test</button>
   <button data-t="progress"><span class="ic">◔</span>Progress</button>
 </nav>
@@ -146,10 +157,10 @@ const PC = window.PinyinCore;
 const $ = id => document.getElementById(id);
 const shuffle = a => { for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
 const pick = (a,n) => shuffle(a.slice()).slice(0,n);
-const escapeHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const escapeHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
 // ===================== progress =====================
-let prog = { v:1, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null };
+let prog = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false };
 const store = {
   async load(){
     try{ if(window.storage){ const r = await window.storage.get("hsk_pinyin"); if(r) prog = Object.assign(prog, JSON.parse(r.value)); return; } }catch(e){}
@@ -174,6 +185,9 @@ function weakFirst(list, n){
   return list.slice().sort((a,b)=>(weakScore(b.w)-weakScore(a.w)) + (Math.random()-0.5)).slice(0,n);
 }
 function provPick(list, n){ return shuffle(list.filter(x=>(prog.w[x.w]||{}).prov && !mastered(x.w))).slice(0,n); }
+// Characters are hidden unless the learner opted in (Progress / Words toggle). Every
+// render site that shows a VOCAB word's `w` (character) field goes through this.
+function charSpan(w, cls){ return prog.showChars ? `<span class="${cls}">${escapeHtml(w.w)}</span>` : ""; }
 
 function levelList(lv){ return VOCAB.filter(v=>v.lv===lv); }
 function nSets(lv){ return Math.ceil(levelList(lv).length/10); }
@@ -195,7 +209,6 @@ function nextNewSet(){
   for(const lv of [1,2,3,4]){ if((prog.sets[lv]||0) < nSets(lv)) return {lv, set: prog.sets[lv]||0}; }
   return null;
 }
-function lessonsUndone(){ return LESSONS.filter(l=>!prog.lessons[l.id]); }
 
 // ===================== speech =====================
 const SS = window.speechSynthesis || null;
@@ -208,6 +221,21 @@ if(hasSpeech){
 function say(t){
   if(!hasSpeech) return;
   try{ SS.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang="zh-CN"; if(zhVoice) u.voice=zhVoice; u.rate=0.85; SS.speak(u); }catch(e){}
+}
+// Like say(), but toggles a "speaking" class on the given button for the duration of
+// the utterance, so the big speaker glyph on hear items can pulse while it talks.
+function playWithPulse(t, btn){
+  if(!hasSpeech) return;
+  try{
+    SS.cancel();
+    const u = new SpeechSynthesisUtterance(t); u.lang="zh-CN"; if(zhVoice) u.voice=zhVoice; u.rate=0.85;
+    if(btn){
+      u.onstart = () => btn.classList.add("speaking");
+      u.onend = () => btn.classList.remove("speaking");
+      u.onerror = () => btn.classList.remove("speaking");
+    }
+    SS.speak(u);
+  }catch(e){}
 }
 function speechNotice(){
   if(hasSpeech || noticeShown) return "";
@@ -267,7 +295,7 @@ function dnext(){
 
 function renderMcItem(it){
   const P = $("panel");
-  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts" id="o"></div><div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const opts = shuffle(it.opts.slice());
   const container = $("o");
@@ -334,24 +362,51 @@ let drillKeyHandler = null;
 document.addEventListener("keydown", e => { if(drillKeyHandler) drillKeyHandler(e); });
 function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 
-// ===================== vocab drill item builders =====================
-function readItem(entry, pool){
-  const ds = PC.distractors(entry, pool);
-  const opts = [PC.mark(entry.n), ...ds.map(d=>d.py)];
-  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
-  return { kind:"mc", label:"Pick the pinyin", html:`<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>`,
+// ===================== vocab drill item builders (meaning-centred) =====================
+// Reveal block shared by hear/read/recall: tone-coloured pinyin + meaning, characters
+// only when the learner has opted in — never the only cue even when shown.
+function revealBlock(entry){
+  const chars = prog.showChars ? `<div style="font-family:var(--zh);font-size:20px;margin-top:2px">${escapeHtml(entry.w)}</div>` : "";
+  return `<div class="py">${PC.pyHTML(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(PC.gloss(entry))}</div>${chars}`;
+}
+// hear — TTS plays the word; pick the meaning. No text stimulus (falls back to pinyin,
+// never characters, if this browser has no zh voice).
+function hearItem(entry){
+  const ds = PC.meaningOpts(entry, VOCAB);
+  const opts = [PC.gloss(entry), ...ds.map(d=>PC.gloss(d))];
+  const rv = `<div class="q">You heard:</div>${revealBlock(entry)}`;
+  return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero",
+    html: speechNotice() + (hasSpeech
+      ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`
+      : `<div class="big">${PC.pyHTML(entry.n)}</div>`),
+    opts, a: PC.gloss(entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
+    mount: () => { if(hasSpeech){ const btn = $("sp"); playWithPulse(entry.w, btn); btn.onclick = ()=>playWithPulse(entry.w, btn); } } };
+}
+// read — pinyin shown (tone-coloured); pick the meaning. Audio auto-plays.
+function readItem(entry){
+  const ds = PC.meaningOpts(entry, VOCAB);
+  const opts = [PC.gloss(entry), ...ds.map(d=>PC.gloss(d))];
+  const rv = revealBlock(entry);
+  return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero",
+    html: `<div class="big">${PC.pyHTML(entry.n)}</div>`,
+    opts, a: PC.gloss(entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
+    mount: () => { if(hasSpeech) say(entry.w); } };
+}
+// recall — meaning shown; pick the pinyin. Distractors are other real words with the
+// same syllable count (not phonetic near-misses — those confuse rather than teach meaning).
+function recallItem(entry){
+  const ds = PC.pinyinOpts(entry, VOCAB);
+  const opts = [PC.mark(entry.n), ...ds.map(d=>PC.mark(d.n))];
+  const rv = revealBlock(entry);
+  return { kind:"mc", label:"Which word is this?", optsClass:"opts-hero",
+    html: `<div class="med" style="text-align:center">${escapeHtml(PC.gloss(entry))}</div>`,
     opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
 }
-function listenItem(entry, pool){
-  const ds = PC.distractors(entry, pool);
-  const opts = [PC.mark(entry.n), ...ds.map(d=>d.py)];
-  const rv = `<div class="big" style="font-size:36px">${escapeHtml(entry.w)}</div><div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
-  return { kind:"mc", label:"Listen, then pick the pinyin", html: speechNotice() + (hasSpeech
-      ? `<div class="listen-stage"><button class="replay" id="rp" aria-label="Replay">▶</button></div>`
-      : `<div class="big">${escapeHtml(entry.w)}</div>`),
-    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
-    mount: () => { if(hasSpeech){ say(entry.w); $("rp").onclick = ()=>say(entry.w); } } };
-}
+
+// ===================== Extras-only pronunciation items (tone pattern / typed pinyin) =====================
+// Retired from Today/Review/Placement/Listen/Recall in v2; kept only for Test > Extras.
+// Never show characters when showChars is off — fall back to audio + toneless pinyin
+// (already the "en" line) instead of the character stimulus.
 function toneItem(entry){
   const chunks = PC.syll(entry.n);
   const answer = PC.tones(entry.n);
@@ -363,13 +418,19 @@ function toneItem(entry){
     opts.add(cand.map(c=>c.slice(-1)).join("-"));
   }
   const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
-  return { kind:"mc", label:"Which tone pattern?", html:`<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(toneless)}</div>`,
+  const stimulus = prog.showChars ? `<div class="big" style="font-family:var(--zh)">${escapeHtml(entry.w)}</div>` : "";
+  return { kind:"mc", label:"Which tone pattern?",
+    html: stimulus + `<div class="en">${escapeHtml(toneless)}</div>` + (!prog.showChars && hasSpeech ? `<div class="listen-stage"><button class="replay" id="rpTone" aria-label="Replay">▶</button></div>` : ""),
+    mount: () => { if(!prog.showChars && hasSpeech){ say(entry.w); $("rpTone").onclick = ()=>say(entry.w); } },
     opts:[...opts], a: answer, reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
 }
 function typeItem(entry){
   const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div>`;
+  const stimulus = prog.showChars
+    ? `<div class="big" style="font-family:var(--zh)">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>`
+    : `<div class="med" style="text-align:center">${escapeHtml(entry.en)}</div>`;
   return { kind:"type", label:"Type the pinyin (numbers or tone marks)",
-    html: `<div class="big">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>` + (hasSpeech ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">▶</button></div>` : ""),
+    html: stimulus + (hasSpeech ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">▶</button></div>` : ""),
     mount: () => { if(hasSpeech) $("rp2").onclick = ()=>say(entry.w); },
     check: val => PC.acceptTypeAnswer(val, entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
 }
@@ -402,67 +463,64 @@ function render(){
 }
 
 // ===================== Today =====================
+// Sounds is optional content, not part of the learning path — the strip is just the
+// four vocab levels now.
 function pathStrip(){
-  const stages = [
-    { label:"Sounds", frac: LESSONS.length ? Object.keys(prog.lessons).length/LESSONS.length : 0 },
-    ...[1,2,3,4].map(lv=>({ label:"HSK"+lv, frac: (prog.sets[lv]||0)/nSets(lv) }))
-  ];
+  const stages = [1,2,3,4].map(lv=>({ label:"HSK"+lv, frac: (prog.sets[lv]||0)/nSets(lv) }));
   return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.label}</div>`).join("")}</div>`;
 }
 let todayStepState = null;
 function todayRender(){
   setScore(0,0);
-  const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet(); const lu = lessonsUndone();
+  const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
   const n = (prog.sessions||0) + 1;
   const steps = [
     ["Review", lw.length ? "15 items, weakest first" : "nothing learned yet — skipped"],
-    ["Learn", lu.length ? `Sounds: ${lu[0].title}` : (nn ? `HSK ${nn.lv}, set ${nn.set+1}` : "everything covered")],
-    ["Listen", lw.length ? "10 items" : "skipped until something is learned"],
-    ["Type", lw.length ? "8 items" : "skipped until something is learned"]
+    ["Learn", nn ? `HSK ${nn.lv}, set ${nn.set+1}` : "everything covered"],
+    ["Listen", lw.length ? "12 items" : "skipped until something is learned"],
+    ["Recall", lw.length ? "8 items" : "skipped until something is learned"]
   ];
+  const showSoundsHint = !Object.keys(prog.lessons).length && !prog.dismissedSoundsHint;
   P.innerHTML = `${pathStrip()}
-    ${(!lw.length && !Object.keys(prog.lessons).length) ? `<div class="stmt">New here? Take the Placement test in the Test tab so today starts where your knowledge ends.</div>` : ""}
+    ${!lw.length ? `<div class="stmt">New here? Take the Placement test in the Test tab so today starts where your knowledge ends.</div>` : ""}
+    ${showSoundsHint ? `<div class="stmt" id="soundsHint">New to pinyin? The Sounds tab explains how to read it. <button class="ghost" id="dismissHint" style="margin-top:8px">Got it</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
     <div class="actions"><button class="next" id="go">Start today</button></div>`;
+  if(showSoundsHint) $("dismissHint").onclick = () => { prog.dismissedSoundsHint = true; store.save(); todayRender(); };
   $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
 }
 function todayStep(){
-  const lw = learnedWords(); const nn = nextNewSet(); const lu = lessonsUndone();
+  const lw = learnedWords(); const nn = nextNewSet();
   const s = todayStepState.step++;
-  if(s === 0){
+  if(s === 0){ // Review: 15 weakest/provisional, mixed hear/read/recall ~50/25/25
     if(lw.length >= 5){
       const pv = provPick(lw, 5);
       const rest = weakFirst(lw.filter(x=>!pv.includes(x)), 15-pv.length);
       const pool = [...rest, ...pv];
-      const items = shuffle(pool.map(w => { const r = Math.random(); return r<0.4?readItem(w,lw):r<0.7?toneItem(w):listenItem(w,lw); }));
+      const items = shuffle(pool.map(w => { const r = Math.random(); return r<0.5?hearItem(w):r<0.75?readItem(w):recallItem(w); }));
       drill(items, todayStep, missSummary); return;
     }
     return todayStep();
   }
-  if(s === 1){
-    if(lu.length){
-      const lesson = lu[0];
-      lessonTeach(lesson, () => { prog.lessons[lesson.id] = 1; store.save(); todayStep(); });
-      return;
-    }
+  if(s === 1){ // Learn: teach the next set of 10, then drill 10x hear + 10x read
     if(nn){
       const list = levelList(nn.lv).slice(nn.set*10, nn.set*10+10);
       vocabTeach(list, nn.lv, () => {
         const items = [];
-        list.forEach(w => items.push(readItem(w, levelList(nn.lv)), toneItem(w)));
+        list.forEach(w => items.push(hearItem(w), readItem(w)));
         drill(shuffle(items), () => { prog.sets[nn.lv] = nn.set+1; store.save(); todayStep(); }, missSummary);
       });
       return;
     }
     return todayStep();
   }
-  if(s === 2){
-    if(lw.length >= 4){ drill(weakFirst(lw,10).map(w=>listenItem(w,lw)), todayStep, missSummary); return; }
+  if(s === 2){ // Listen: 12 hear items from learned words
+    if(lw.length >= 4){ drill(weakFirst(lw,12).map(w=>hearItem(w)), todayStep, missSummary); return; }
     return todayStep();
   }
-  if(s === 3){
-    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>typeItem(w)), todayFinish, missSummary); return; }
+  if(s === 3){ // Recall: 8 recall items from learned words
+    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>recallItem(w)), todayFinish, missSummary); return; }
     return todayFinish();
   }
   todayFinish();
@@ -482,7 +540,7 @@ function vocabTeach(list, lv, onDrill){
   const tl = $("tl");
   list.forEach(w => {
     const row = document.createElement("div"); row.className = "rowset";
-    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span>`;
+    row.innerHTML = `${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span><span style="color:var(--mute);flex:0 0 auto">▶</span>`;
     row.onclick = () => say(w.w);
     row.style.cursor = "pointer";
     tl.appendChild(row);
@@ -525,7 +583,7 @@ function soundsRender(){
     return;
   }
   const done = Object.keys(prog.lessons).length;
-  P.innerHTML = `<p class="q">${LESSONS.length} lessons on sounds and tones. ${done} done.</p>
+  P.innerHTML = `<p class="q">Optional: how pinyin sounds and is spelled. ${LESSONS.length} lessons, ${done} done.</p>
     <div class="plist">${LESSONS.map((l,i)=>`<button data-i="${i}"><span>${escapeHtml(l.title)}</span>${prog.lessons[l.id]?'<span class="tick">✓</span>':''}</button>`).join("")}</div>
     <button class="ghost" id="chart" style="margin-top:10px">Pinyin reference chart</button>`;
   P.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ soundsSel = +b.dataset.i; soundsRender(); });
@@ -548,33 +606,70 @@ function chartRender(){
 }
 
 // ===================== Words =====================
-let wordsLv = 1, wordsSet = null;
+let wordsLv = 1, wordsSet = null, wordsQuery = "";
+// The shell (search box + characters toggle) is rendered once per tab visit; typing in
+// the search box only re-renders #wbody, so the input never loses focus/cursor mid-type.
 function wordsRender(){
   setScore(0,0);
   const P = $("panel");
+  P.innerHTML = `<div class="row">
+      <input type="text" id="wsearch" autocomplete="off" placeholder="Search pinyin or meaning…" style="flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-family:var(--font);font-size:15px" value="${escapeHtml(wordsQuery)}">
+      <button class="chip ${prog.showChars?'on':''}" id="wChars" aria-label="Toggle characters">字</button>
+    </div>
+    <div id="wbody"></div>`;
+  $("wChars").onclick = () => {
+    prog.showChars = !prog.showChars; store.save();
+    // Only #wbody gets re-rendered here (search input must keep focus), so the chip's
+    // own "on" state — outside #wbody — has to be toggled directly, not re-derived
+    // from a fresh wordsRender().
+    $("wChars").classList.toggle("on", prog.showChars);
+    renderWordBody();
+  };
+  const search = $("wsearch");
+  search.oninput = () => { wordsQuery = search.value; renderWordBody(); };
+  renderWordBody();
+}
+function renderWordBody(){
+  const body = $("wbody");
+  const q = wordsQuery.trim().toLowerCase();
+  if(q){
+    const matches = VOCAB.filter(v => v.en.toLowerCase().includes(q) || PC.strip(v.py).toLowerCase().includes(q) || v.py.toLowerCase().includes(q));
+    if(!matches.length){ body.innerHTML = `<p class="q">No matches.</p>`; return; }
+    body.innerHTML = `<div id="wl"></div>`;
+    const wl = $("wl");
+    matches.slice(0,150).forEach(w => {
+      const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
+      row.innerHTML = `${charSpan(w,"zh")}<span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
+      row.onclick = () => say(w.w);
+      wl.appendChild(row);
+    });
+    return;
+  }
   const list = levelList(wordsLv); const total = nSets(wordsLv); const done = prog.sets[wordsLv]||0;
   if(wordsSet == null) wordsSet = Math.min(done, total-1);
   const set = list.slice(wordsSet*10, wordsSet*10+10);
-  P.innerHTML = `<div class="row">${[1,2,3,4].map(lv=>`<button data-l="${lv}" class="${lv===wordsLv?'on':''}">HSK ${lv}</button>`).join("")}</div>
+  body.innerHTML = `<div class="row">${[1,2,3,4].map(lv=>`<button data-l="${lv}" class="${lv===wordsLv?'on':''}">HSK ${lv}</button>`).join("")}</div>
     <div class="row"><button id="pv">‹</button><button class="on">Set ${wordsSet+1} / ${total}${wordsSet<done?' ✓':''}</button><button id="nx">›</button><button id="jump">next new</button><button id="rev">review</button></div>
     <div id="wl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
-  P.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ wordsLv=+b.dataset.l; wordsSet=null; wordsRender(); });
-  $("pv").onclick = () => { wordsSet = Math.max(0, wordsSet-1); wordsRender(); };
-  $("nx").onclick = () => { wordsSet = Math.min(total-1, wordsSet+1); wordsRender(); };
-  $("jump").onclick = () => { wordsSet = Math.min(done, total-1); wordsRender(); };
+  body.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ wordsLv=+b.dataset.l; wordsSet=null; renderWordBody(); });
+  $("pv").onclick = () => { wordsSet = Math.max(0, wordsSet-1); renderWordBody(); };
+  $("nx").onclick = () => { wordsSet = Math.min(total-1, wordsSet+1); renderWordBody(); };
+  $("jump").onclick = () => { wordsSet = Math.min(done, total-1); renderWordBody(); };
   const wl = $("wl");
   set.forEach(w => {
     const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
-    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
+    row.innerHTML = `${charSpan(w,"zh")}<span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
     row.onclick = () => say(w.w);
     wl.appendChild(row);
   });
   $("dr").onclick = () => {
-    const items = []; set.forEach(w => items.push(readItem(w, list), toneItem(w)));
+    const items = []; set.forEach(w => items.push(hearItem(w), readItem(w)));
     // Only advance the level's set pointer when this was exactly the next unlearned
     // set — drilling a set further ahead must not silently mark every skipped set
     // as learned. Otherwise stamp these specific words with the `d` (drilled-ahead)
     // flag so learnedWords() counts just them, not the whole set range.
+    // The drill runner replaces the whole #panel, so its callback rebuilds the full
+    // Words shell (wordsRender), not just #wbody.
     drill(shuffle(items), () => {
       if(wordsSet === (prog.sets[wordsLv]||0)){ prog.sets[wordsLv] = wordsSet+1; }
       else { set.forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:0,w:0,s:0}; prog.w[w.w].d = 1; }); }
@@ -583,7 +678,7 @@ function wordsRender(){
   };
   $("rev").onclick = () => {
     const lw = learnedWords(); if(lw.length < 5){ alert("Finish a set first."); return; }
-    drill(weakFirst(lw, 15).map(w=>{ const r = Math.random(); return r<0.4?readItem(w,lw):r<0.7?toneItem(w):listenItem(w,lw); }), wordsRender, missSummary);
+    drill(weakFirst(lw, 15).map(w=>{ const r = Math.random(); return r<0.5?hearItem(w):r<0.75?readItem(w):recallItem(w); }), wordsRender, missSummary);
   };
 }
 
@@ -593,62 +688,71 @@ function testRender(){
   setScore(0,0);
   const P = $("panel");
   if(testSel === "placement"){ placeRender(); return; }
+  if(testSel === "extras"){ extrasRender(); return; }
   P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
     <div class="actions">
       <button class="next" id="pl">Take Placement</button>
       <div class="row" style="margin-top:8px;margin-bottom:0">
         <button class="ghost" id="tListen" style="flex:1">Listen 20</button>
-        <button class="ghost" id="tType" style="flex:1">Type 20</button>
-        <button class="ghost" id="tTone" style="flex:1">Tones 20</button>
+        <button class="ghost" id="tRecall" style="flex:1">Recall 20</button>
       </div>
+      <button class="ghost" id="extras">Extras: tones · typed pinyin</button>
     </div>`;
   $("pl").onclick = () => { testSel = "placement"; testRender(); };
+  $("extras").onclick = () => { testSel = "extras"; testRender(); };
   const need = () => { const lw = learnedWords(); if(lw.length < 8){ alert("Learn a few words first (Today or Words tab)."); return null; } return lw; };
-  $("tListen").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>listenItem(w,lw)), testRender, missSummary); };
-  $("tType").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>typeItem(w)), testRender, missSummary); };
-  $("tTone").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>toneItem(w)), testRender, missSummary); };
+  $("tListen").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>hearItem(w)), testRender, missSummary); };
+  $("tRecall").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>recallItem(w)), testRender, missSummary); };
 }
-// strata() lives in pinyin_core.js (PC.strata) so the app and the node checks share one definition.
+// Extras: v1's pronunciation-focused items (tone pattern, typed pinyin), kept as an
+// optional secondary test — not part of Today/Review/Placement/Listen/Recall in v2.
+function extrasRender(){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<div class="row"><button id="back">‹ test</button></div>
+    <p class="q">Optional pronunciation drills, from words you've already learned.</p>
+    <div class="row">
+      <button class="ghost" id="tType" style="flex:1">Type 20</button>
+      <button class="ghost" id="tTone" style="flex:1">Tones 20</button>
+    </div>`;
+  $("back").onclick = () => { testSel = null; testRender(); };
+  const need = () => { const lw = learnedWords(); if(lw.length < 8){ alert("Learn a few words first (Today or Words tab)."); return null; } return lw; };
+  $("tType").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>typeItem(w)), () => { testSel="extras"; testRender(); }, missSummary); };
+  $("tTone").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>toneItem(w)), () => { testSel="extras"; testRender(); }, missSummary); };
+}
+// strata() lives in pinyin_core.js (PC.strata) so the app and the node checks share one
+// definition. v2 drops the foundations block entirely — placement is 40 vocab-only
+// hear/read items, since it's meaning that decides where a learner starts, not sounds.
 function placeRender(){
   D = null; drillKeyHandler = null; setScore(0,0);
   const P = $("panel"); const lw = learnedWords();
   P.innerHTML = `<div class="row"><button id="back">‹ test</button></div>
-    <p class="q">48 items: 8 foundation sound questions, then 40 words across HSK 1–4, meaning shown, pick the pinyin. No feedback until the end. Places you inside a level; skipped words stay in review as provisional.</p>
+    <p class="q">40 words across HSK 1–4: hear or read the word, pick the meaning. No feedback until the end. Places you inside a level; skipped words stay in review as provisional.</p>
     ${lw.length ? `<p class="q">Current: ${lw.length} words learned. Retaking resets set position and clears any provisional or drilled-ahead words that haven't stuck yet.</p>` : ""}
     <div class="actions"><button class="next" id="go">Start placement</button></div>`;
   $("back").onclick = () => { testSel = null; testRender(); };
   $("go").onclick = () => {
-    const foundationPool = shuffle(LESSONS.flatMap(l=>l.items)).slice(0,8);
     const st = PC.strata(VOCAB);
     const bucketItems = [];
     st.forEach((b,bi) => { const k = bi%2===0 ? 2 : 3; pick(b.words, k).forEach(w=>bucketItems.push({b:bi, w})); });
-    PL = { foundation:{items:foundationPool, i:0, right:0}, vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})), phase:"foundation" };
-    placeFoundationNext();
+    PL = { vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})) };
+    placeVocabNext();
   };
-}
-function placeFoundationNext(){
-  const P = $("panel"); const F = PL.foundation;
-  if(F.i >= F.items.length){ PL.phase="vocab"; placeVocabNext(); return; }
-  const it = F.items[F.i++]; setScore(F.i, F.items.length);
-  P.innerHTML = `<p class="q">Foundations ${F.i} / ${F.items.length}</p><p class="med">${escapeHtml(it.q)}</p>
-    ${it.say ? `<div class="listen-stage"><button class="replay" id="rp">▶</button></div>` : ""}
-    <div class="opts" id="o"></div>`;
-  if(it.say && hasSpeech){ say(it.say); $("rp").onclick = ()=>say(it.say); }
-  shuffle(it.opts.slice()).forEach(o => {
-    const b = document.createElement("button"); b.textContent = o;
-    b.onclick = () => { if(o===it.a) F.right++; placeFoundationNext(); };
-    $("o").appendChild(b);
-  });
 }
 function placeVocabNext(){
   const P = $("panel"); const V = PL.vocab;
   if(V.i >= V.items.length){ placeResult(); return; }
   const it = V.items[V.i++]; const w = it.w; setScore(V.i, V.items.length);
-  const ds = PC.distractors(w, VOCAB);
-  P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p><div class="big">${escapeHtml(w.w)}</div><div class="en">${escapeHtml(w.en)}</div><div class="opts" id="o"></div>`;
-  shuffle([PC.mark(w.n), ...ds.map(d=>d.py)]).forEach(o => {
+  const ds = PC.meaningOpts(w, VOCAB);
+  const opts = shuffle([w.en, ...ds.map(d=>d.en)]);
+  const asHear = hasSpeech && Math.random() < 0.5;
+  P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p>
+    ${asHear ? `<div class="hear-stage"><button class="speaker" id="rp" aria-label="Replay">🔊</button></div>` : `<div class="big">${PC.pyHTML(w.n)}</div>`}
+    <div class="opts" id="o"></div>`;
+  if(asHear){ const btn = $("rp"); playWithPulse(w.w, btn); btn.onclick = ()=>playWithPulse(w.w, btn); }
+  opts.forEach(o => {
     const b = document.createElement("button"); b.textContent = o;
-    b.onclick = () => { PL.res[it.b].n++; if(o===PC.mark(w.n)) PL.res[it.b].r++; placeVocabNext(); };
+    b.onclick = () => { PL.res[it.b].n++; if(o===w.en) PL.res[it.b].r++; placeVocabNext(); };
     $("o").appendChild(b);
   });
 }
@@ -674,12 +778,10 @@ function placeResult(){
   prog.sets = {1:0,2:0,3:0,4:0};
   for(let i=0;i<passed;i++){ const b = st[i]; prog.sets[b.lv] = Math.max(prog.sets[b.lv], b.s1); }
   learnedWords().forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:1,w:0,s:1,prov:1}; });
-  if(PL.foundation.right >= 7) LESSONS.forEach(l=>prog.lessons[l.id]=1);
   store.save();
   const pos = stop==null ? "everything covered — go straight to Words and pick a set" : `HSK ${st[passed].lv}, set ${st[passed].s0+1}`;
   const P = $("panel");
   P.innerHTML = `<div class="done"><h2>Start at ${pos}</h2>
-    <p class="q">Foundations: ${PL.foundation.right} / 8 ${PL.foundation.right>=7?"— all Sounds lessons marked done":""}</p>
     <table class="stats">${rows.map(([b,r,acc],i)=>`<tr><td>HSK ${b.lv} sets ${b.s0+1}–${b.s1}</td><td style="color:${i<passed?'var(--ok)':'var(--bad)'}">${r.r}/${r.n}</td></tr>`).join("")}</table>
     <p class="q">${learnedWords().length} words freshly marked provisional and kept in review.</p>
     <button class="next" id="ok">Go to Today</button></div>`;
@@ -701,8 +803,9 @@ function progressRender(){
     <table class="stats">${rows}
       <tr><td>Sounds</td><td>${Object.keys(prog.lessons).length} / ${LESSONS.length} lessons done</td></tr>
       <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
+    <div class="row" style="margin-top:14px"><button class="chip ${prog.showChars?'on':''}" id="toggleChars">Show characters</button></div>
     <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
-    ${weak.map(w=>`<div class="rowset"><span class="zh">${escapeHtml(w.w)}</span><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></div>`).join("")}
+    ${weak.map(w=>`<div class="rowset">${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></div>`).join("")}
     <div class="row" style="margin-top:16px">
       <button class="ghost" id="exp" style="flex:1">Export progress</button>
       <button class="ghost" id="imp" style="flex:1">Import progress</button>
@@ -713,6 +816,7 @@ function progressRender(){
       <button class="next" id="doimport">Load</button>
     </div>
     <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
+  $("toggleChars").onclick = () => { prog.showChars = !prog.showChars; store.save(); progressRender(); };
   $("exp").onclick = () => {
     const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -730,9 +834,12 @@ function progressRender(){
       const data = JSON.parse($("imptxt").value);
       const v = PC.validateProgShape(data);
       if(!v.ok){ alert("That doesn't look like valid exported progress: " + v.reason); return; }
-      const prevTheme = prog.theme;
-      prog = Object.assign({v:1,w:{},sets:{1:0,2:0,3:0,4:0},lessons:{},sessions:0}, v.data, {v:1});
+      const prevTheme = prog.theme, prevShowChars = prog.showChars;
+      // Both v1 and v2 exports pass validateProgShape; PC.migrateProg (shared with the
+      // boot-time migration below) forces v:2 and defaults showChars false.
+      prog = PC.migrateProg(v.data);
       if(prog.theme === undefined) prog.theme = prevTheme; // imported progress with no theme keeps the current one
+      if(v.data.showChars === undefined) prog.showChars = prevShowChars; // same for showChars
       store.save(); applyTheme(); progressRender();
     }catch(e){
       alert("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
@@ -740,7 +847,7 @@ function progressRender(){
   };
   $("reset").onclick = () => {
     if(!confirm("Reset all progress? This can't be undone.")) return;
-    prog = { v:1, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme };
+    prog = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars };
     store.save(); progressRender();
   };
 }
@@ -756,6 +863,10 @@ $("themebtn").onclick = () => {
 // ===================== boot =====================
 (async function(){
   await store.load();
+  // Migration v1 -> v2: PC.migrateProg (shared with the import handler above) bumps a
+  // stored v1 progress object to v:2 and defaults the new showChars field; only persist
+  // if migration actually changed something, to avoid a needless write on every boot.
+  if(prog.v !== 2 || prog.showChars === undefined){ prog = PC.migrateProg(prog); store.save(); }
   applyTheme();
   render();
 })();

@@ -62,7 +62,19 @@ function mark(n){
   return out;
 }
 
-function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// Render-time guard: an `en` gloss should never contain a Chinese character (the
+// data pipeline's sanitize_gloss in tools/build_vocab.py handles this at the
+// source), but every render site that shows a word's meaning goes through this one
+// function, so a future data regression can't leak a character past the "show
+// characters" toggle the way a handful of un-sanitized glosses did before.
+const CJK_TEST_RE = /[一-鿿㐀-䶿]/;
+function gloss(entry){
+  const en = String((entry && entry.en) || "");
+  if(!CJK_TEST_RE.test(en)) return en;
+  return en.replace(/[一-鿿㐀-䶿]+/g, "").replace(/\s+/g, " ").replace(/\(\s*\)/g, "").trim();
+}
 
 // tone-coloured pinyin renderer: each syllable in <span class="t1".."t5">
 function pyHTML(n){
@@ -254,6 +266,75 @@ function distractors(entry, pool){
   return results.slice(0,3);
 }
 
+// ------------------------------------------------- meaning-centred distractors
+// first two whitespace-separated words of a gloss, lowercased and stripped of
+// punctuation — used to reject near-synonym distractors (two "to eat"-ish glosses).
+function firstTwoWords(en){
+  return String(en).toLowerCase().replace(/[^a-z\s]/g,"").trim().split(/\s+/).slice(0,2).join(" ");
+}
+
+// entry: {en,lv,w,...}; pool: VOCAB array. Returns up to 3 other VOCAB entries whose
+// gloss is a plausible wrong answer: never the same gloss, never sharing the first two
+// gloss words with the answer or with each other, same level preferred over other levels.
+function meaningOpts(entry, pool){
+  const ansKey = String(entry.en).trim().toLowerCase();
+  const ansFirst2 = firstTwoWords(entry.en);
+  const candidates = (pool||[]).filter(v=>v.w!==entry.w && String(v.en).trim().toLowerCase()!==ansKey);
+  const bySame = shuffle(candidates.filter(v=>v.lv===entry.lv));
+  const byOther = shuffle(candidates.filter(v=>v.lv!==entry.lv));
+  const ordered = [...bySame, ...byOther];
+
+  function pass(strict){
+    const chosen = []; const usedFirst2 = new Set([ansFirst2]);
+    ordered.forEach(v=>{
+      if(chosen.length>=3) return;
+      const f2 = firstTwoWords(v.en);
+      if(strict && usedFirst2.has(f2)) return;
+      chosen.push(v); usedFirst2.add(f2);
+    });
+    return chosen;
+  }
+  let chosen = pass(true);
+  if(chosen.length<3) chosen = pass(false); // small-pool fallback: keep "not the answer" only
+  return chosen.slice(0,3);
+}
+
+// entry: {n,lv,...}; pool: VOCAB array. Returns up to 3 other VOCAB entries with the
+// same syllable count as entry, same level preferred. Not phonetic near-misses (that
+// generator is `distractors()` above, kept only for the Extras tone/type items) —
+// meaning-recall distractors should be plausible words, not confusable spellings.
+function pinyinOpts(entry, pool){
+  const n = syll(entry.n).length;
+  const ansKey = String(entry.en).trim().toLowerCase();
+  const seen = new Set([pipeline(entry.n)]);
+  const rank = v => Math.abs(syll(v.n).length - n);
+  // Exclude gloss-twins (e.g. 经历/经验, both "experience; to experience") — with the
+  // meaning shown and two pinyin options for words that mean the same thing, either
+  // would be a "correct" answer, so the item would be ambiguous rather than hard.
+  const candidates = (pool||[]).filter(v=>pipeline(v.n)!==pipeline(entry.n) && String(v.en).trim().toLowerCase()!==ansKey);
+  const exact = candidates.filter(v=>rank(v)===0);
+  const bySame = shuffle(exact.filter(v=>v.lv===entry.lv));
+  const byOther = shuffle(exact.filter(v=>v.lv!==entry.lv));
+  const chosen = [];
+  function addFrom(list){
+    list.forEach(v=>{
+      if(chosen.length>=3) return;
+      const key = pipeline(v.n);
+      if(seen.has(key)) return;
+      seen.add(key); chosen.push(v);
+    });
+  }
+  addFrom(bySame); addFrom(byOther);
+  if(chosen.length<3){
+    // Extremely rare (a syllable count with fewer than 3 other words in the whole
+    // corpus — e.g. "公共汽车" is the only 4-syllable HSK 1-4 word) — widen to the
+    // closest syllable counts rather than leaving the drill item short of 4 options.
+    const rest = shuffle(candidates.filter(v=>rank(v)>0)).sort((a,b)=>rank(a)-rank(b));
+    addFrom(rest);
+  }
+  return chosen.slice(0,3);
+}
+
 // --------------------------------------------------------------- placement
 // Splits a vocab pool into placement buckets: bucketSpec = [[level, bucketCount], ...].
 // Default matches the spec: HSK1x3, HSK2x3, HSK3x4, HSK4x6 (16 buckets).
@@ -294,7 +375,7 @@ function placementStopIndex(res){
 // Returns {ok:true, data} or {ok:false, reason}.
 function validateProgShape(data){
   if(!data || typeof data !== "object" || Array.isArray(data)) return {ok:false, reason:"not a JSON object"};
-  if(data.v !== undefined && data.v !== 1) return {ok:false, reason:`unknown progress version ${data.v}`};
+  if(data.v !== undefined && data.v !== 1 && data.v !== 2) return {ok:false, reason:`unknown progress version ${data.v}`};
   if(data.w !== undefined){
     if(!data.w || typeof data.w !== "object" || Array.isArray(data.w)) return {ok:false, reason:"w must be an object"};
     for(const k of Object.keys(data.w)){
@@ -314,12 +395,26 @@ function validateProgShape(data){
   }
   if(data.lessons !== undefined && (!data.lessons || typeof data.lessons !== "object" || Array.isArray(data.lessons))) return {ok:false, reason:"lessons must be an object"};
   if(data.sessions !== undefined && typeof data.sessions !== "number") return {ok:false, reason:"sessions must be a number"};
+  if(data.showChars !== undefined && typeof data.showChars !== "boolean") return {ok:false, reason:"showChars must be a boolean"};
+  if(data.dismissedSoundsHint !== undefined && typeof data.dismissedSoundsHint !== "boolean" && typeof data.dismissedSoundsHint !== "number") return {ok:false, reason:"dismissedSoundsHint must be a boolean or number"};
   return {ok:true, data};
+}
+
+// Merges any validated progress data (v1 or v2 shaped) onto full v2 defaults and forces
+// v:2, so a v1 export (or a v1 localStorage record at boot) migrates to a well-formed v2
+// progress object. Word/set/lesson data is unchanged between versions — only `v` and the
+// new `showChars` field (default false) differ. Shared by the app's import handler and
+// its boot-time migration so there is exactly one place that knows the v1->v2 shape.
+function migrateProg(data){
+  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false };
+  const merged = Object.assign({}, base, data||{}, {v:2});
+  if(merged.showChars === undefined) merged.showChars = false;
+  return merged;
 }
 
 // ------------------------------------------------------------------- export
 const API = { syll, mark, tones, strip, pyHTML, normType, acceptTypeAnswer, distractors, strata,
-  placementStopIndex, validateProgShape,
+  placementStopIndex, validateProgShape, migrateProg, meaningOpts, pinyinOpts, firstTwoWords, gloss, escapeHtml,
   VALID_SYLLABLES, INITIAL_FINALS, splitSyllable, pipeline, numberedCandidates, markSyllable };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.PinyinCore = API;

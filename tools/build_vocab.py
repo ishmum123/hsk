@@ -204,6 +204,69 @@ def is_tagged_sense(s):
     return bool(TAGGED_RE.search(s))
 
 
+# ---------------------------------------------------------- gloss sanitiser (v2)
+# The source's `meanings` occasionally embed a Chinese cross-reference inside an
+# otherwise-English gloss, e.g. "you (informal, as opposed to courteous 您)" or
+# "old; opposite: new 新" -- these leaked raw characters into `en` even with the
+# trainer's "show characters" toggle off, since the app only ever gates the `w`
+# field, not `en`. Every one of these is, structurally, a short lead-in phrase
+# ("opposite:", "abbr. for", "as opposed to", "also written", "...equivalent
+# of/to") immediately followed by the Chinese word it's pointing at -- that whole
+# clause (or parenthetical, or ";"-joined sense) carries no meaning without the
+# character it references, so it gets dropped entirely rather than left as a
+# dangling "opposite:" or "abbr. for" with the Chinese word silently removed.
+CJK_RE = re.compile(r'[一-鿿㐀-䶿]+')
+CROSSREF_ONLY_RE = re.compile(
+    r'^(?:as opposed to|opposite\s+of|opposite:?|abbr\.?\s+for|short for|see|'
+    r'also written|also called|colloquial equivalent of|literary equivalent of|'
+    r'equivalent (?:of|to))[\s:]*[\w\s]*$',
+    re.I,
+)
+
+
+def _clean_subclause(text):
+    """A single comma-delimited fragment (no surrounding delimiters). Returns ''
+    if, once its Chinese run is removed, all that's left is a cross-reference
+    lead-in with nothing else -- i.e. the whole fragment only existed to point at
+    that Chinese word. Otherwise returns the fragment with the Chinese run
+    stripped and whitespace collapsed."""
+    if not CJK_RE.search(text):
+        return text
+    without_cjk = CJK_RE.sub('', text)
+    if CROSSREF_ONLY_RE.match(without_cjk.strip(' :')):
+        return ''
+    return re.sub(r'\s+', ' ', without_cjk).strip()
+
+
+def _clean_commalist(text):
+    parts = [p for p in (_clean_subclause(p) for p in re.split(r',\s*', text)) if p]
+    return ', '.join(parts)
+
+
+def _clean_paren(m):
+    inner = _clean_commalist(m.group(1))
+    return f'({inner})' if inner else ''
+
+
+def sanitize_gloss(en):
+    """Removes Chinese characters from an English gloss. A clause (parenthetical,
+    comma-fragment, or ";"-joined sense) that is nothing but a cross-reference lead-in
+    plus the Chinese word it points to (e.g. "abbr. for 超级市场", "opposite: new 新")
+    is dropped whole; any other Chinese run found is stripped in place, with leftover
+    whitespace/empty-parens collapsed. May return '' if the entire gloss was a
+    cross-reference -- callers should fall back to the next candidate sense."""
+    if not CJK_RE.search(en):
+        return en
+    en = re.sub(r'\(([^()]*)\)', _clean_paren, en)
+    senses = [_clean_commalist(s) for s in re.split(r';\s*', en)]
+    en = '; '.join(s for s in senses if s)
+    en = CJK_RE.sub('', en)  # safety net for any Chinese run the lead-in list missed
+    en = re.sub(r'\(\s*\)', '', en)
+    en = re.sub(r'\s+', ' ', en)
+    en = re.sub(r'\s*([;,])\s*', r'\1 ', en)
+    return en.strip(' ,;')
+
+
 # Manual overrides for words where, after the categorical cap/gloss-pattern filter,
 # 2+ eligible forms remain and the raw dataset order does not land on the common HSK
 # reading. Each was verified by hand against the source's own meanings text (below)
@@ -327,7 +390,16 @@ def build_en(meanings):
     # rank untagged senses ahead of "(bound form)"-tagged ones, e.g. 上's
     # "to climb; to get onto" over "(bound form) up; upper".
     ranked = sorted((m.strip() for m in filtered), key=lambda m: 1 if is_tagged_sense(m) else 0)
-    picked = ranked[:2] if len(ranked) > 1 else ranked[:1]
+    # Sanitize every candidate sense (strips an embedded Chinese cross-reference, or
+    # drops the sense entirely if it's nothing but one -- see sanitize_gloss). A sense
+    # that sanitizes to empty is skipped so the next-ranked sense is used instead,
+    # rather than ever shipping an empty or CJK-leaking gloss.
+    sanitized = [s for s in (sanitize_gloss(m) for m in ranked) if s]
+    if not sanitized:
+        # Every candidate sense was pure cross-reference text -- not expected on the
+        # real corpus (checked: it doesn't happen), but better a raw sense than none.
+        sanitized = [ranked[0]] if ranked else ['']
+    picked = sanitized[:2] if len(sanitized) > 1 else sanitized[:1]
     en = "; ".join(picked)
     if len(en) <= 60:
         return en
@@ -430,6 +502,11 @@ def main():
     print(f"\nentries with unmatched '(' in en: {len(unmatched)}")
     for r in unmatched[:20]:
         print(f"  {r['w']}\t{r['en']}")
+
+    cjk_leaked = [r for r in result if CJK_RE.search(r['en'])]
+    print(f"\nentries with a Chinese character still in en after sanitize_gloss: {len(cjk_leaked)} (should be 0)")
+    for r in cjk_leaked[:20]:
+        print(f"  {r['w']}\t{r['en']!r}")
 
     if old_by_w:
         py_changed, en_changed = [], []

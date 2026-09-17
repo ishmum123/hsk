@@ -54,11 +54,18 @@ function check(name, cond){
   sample.forEach(entry=>{
     const ds = PC.distractors(entry, VOCAB);
     const chunks = PC.syll(entry.n);
+    // A chunk whose letters are exactly "r" is the erhua suffix (e.g. 一会儿,
+    // yi4hui4r5) — distractors() exempts it from the VALID_SYLLABLES check for the
+    // same reason (see its comment), so this validity check must too, or it flakes
+    // on every erhua word that gets sampled.
     const ok = ds.length===3 &&
       new Set(ds.map(d=>d.n)).size===3 &&
       ds.every(d=>d.n!==entry.n) &&
       ds.every(d=>PC.syll(d.n).length===chunks.length) &&
-      ds.every(d=>PC.syll(d.n).every(c=>PC.VALID_SYLLABLES.has(c.slice(0,-1).toLowerCase())));
+      ds.every(d=>PC.syll(d.n).every(c=>{
+        const letters = c.slice(0,-1).toLowerCase();
+        return letters==="r" || PC.VALID_SYLLABLES.has(letters);
+      }));
     if(!ok){ bad++; if(badExamples.length<10) badExamples.push({entry:entry.n, ds}); }
   });
   console.log(`\n[2] distractor generation over ${N} random words: ${N-bad} clean, ${bad} bad`);
@@ -103,16 +110,19 @@ function check(name, cond){
 
 // ---------------------------------------------------------------- check 4
 (function(){
-  // Placement strata: 8 foundation items + 40 vocab items across L1x3 L2x3 L3x4 L4x6 buckets = 16 buckets, sum 48.
+  // Placement strata: L1x3 L2x3 L3x4 L4x6 buckets = 16 buckets, 40 vocab items total.
+  // v2 dropped the foundations block from placement (meaning, not sounds, decides
+  // where a learner starts), so this checks the vocab bucket math only — the "8
+  // foundation items" framing is gone from the app, not from PC.strata()'s shape.
   // Uses the app's real PC.strata() (shared with src/pinyin_app.html) rather than a re-derived copy.
   const st = PC.strata(VOCAB); // default bucketSpec: [[1,3],[2,3],[3,4],[4,6]]
   const nBuckets = st.length;
   // app assigns 2 items to even-index buckets, 3 to odd-index buckets: 8*2 + 8*3 = 40
   const bucketItemCounts = st.map((b,i)=> i%2===0 ? 2 : 3);
   const totalVocabItems = bucketItemCounts.reduce((s,n)=>s+n,0);
-  console.log(`\n[4] Placement strata: ${nBuckets} vocab buckets (${totalVocabItems} items) + 8 foundation items = ${8+totalVocabItems} total`);
+  console.log(`\n[4] Placement strata: ${nBuckets} vocab buckets, ${totalVocabItems} items total`);
   console.log("    bucket sizes (words available per bucket):", st.map(b=>b.words.length).join(","));
-  check("16 vocab buckets + 8 foundations = 48", nBuckets===16 && totalVocabItems+8===48);
+  check("16 vocab buckets totalling 40 items", nBuckets===16 && totalVocabItems===40);
   check("every vocab bucket has enough words for its item count", st.every((b,i)=>b.words.length >= bucketItemCounts[i]));
 })();
 
@@ -194,6 +204,103 @@ function check(name, cond){
   // right at the rolling-window threshold, and the bucket still has >=1 right — passes.
   const singleMissBucket0 = [{r:3,n:4}, {r:3,n:3}, {r:3,n:3}, {r:3,n:3}];
   check("a single miss in a big-enough bucket 0 still passes", PC.placementStopIndex(singleMissBucket0) === null);
+})();
+
+// ---------------------------------------------------------------- check 9
+(function(){
+  // meaningOpts: the v2 meaning-distractor picker used by hear/read items. Over 200
+  // random words: exactly 3 options, all real VOCAB entries, none equal to the answer's
+  // gloss, none sharing the first two gloss words with the answer or each other.
+  const N = 200;
+  const sample = [];
+  for(let i=0;i<N;i++) sample.push(VOCAB[Math.floor(Math.random()*VOCAB.length)]);
+  let bad = 0; const badExamples = [];
+  let sameLevelCount = 0, totalOpts = 0;
+  sample.forEach(entry=>{
+    const ds = PC.meaningOpts(entry, VOCAB);
+    const ansKey = String(entry.en).trim().toLowerCase();
+    const ansFirst2 = PC.firstTwoWords(entry.en);
+    const first2s = ds.map(d=>PC.firstTwoWords(d.en));
+    const ok = ds.length===3 &&
+      ds.every(d=>VOCAB.includes(d)) &&
+      ds.every(d=>String(d.en).trim().toLowerCase()!==ansKey) &&
+      first2s.every(f2=>f2!==ansFirst2) &&
+      new Set(first2s).size===first2s.length;
+    if(!ok){ bad++; if(badExamples.length<10) badExamples.push({entry:entry.en, ds:ds.map(d=>d.en)}); }
+    ds.forEach(d=>{ totalOpts++; if(d.lv===entry.lv) sameLevelCount++; });
+  });
+  console.log(`\n[9] meaningOpts over ${N} random words: ${N-bad} clean, ${bad} bad`);
+  console.log(`    same-level ratio: ${totalOpts ? (sameLevelCount/totalOpts).toFixed(2) : "n/a"} (${sameLevelCount}/${totalOpts})`);
+  badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+  check("meaningOpts valid for every sampled word (0 bad)", bad === 0);
+})();
+
+// --------------------------------------------------------------- check 10
+(function(){
+  // pinyinOpts: the v2 pinyin-distractor picker used by recall items. Over 200 random
+  // words: exactly 3 options, all real VOCAB entries, same syllable count, never the
+  // answer, never a gloss-twin of the answer (e.g. 经历/经验, both "experience; to
+  // experience" — with the meaning shown, a gloss-twin's pinyin would be an equally
+  // "correct" answer), and reports the same-level ratio.
+  const N = 200;
+  const sample = [];
+  for(let i=0;i<N;i++) sample.push(VOCAB[Math.floor(Math.random()*VOCAB.length)]);
+  let bad = 0; const badExamples = [];
+  let sameLevelCount = 0, totalOpts = 0;
+  sample.forEach(entry=>{
+    const ds = PC.pinyinOpts(entry, VOCAB);
+    const n = PC.syll(entry.n).length;
+    const ansKey = String(entry.en).trim().toLowerCase();
+    // The whole corpus has only 1 four-syllable word, so pinyinOpts widens to the
+    // closest syllable count when the exact-count pool is too small (see its comment) —
+    // only require an exact match when the corpus actually has 3+ other same-count,
+    // non-gloss-twin words.
+    const exactPoolSize = VOCAB.filter(v=>v.n!==entry.n && PC.syll(v.n).length===n && String(v.en).trim().toLowerCase()!==ansKey).length;
+    const ok = ds.length===3 &&
+      ds.every(d=>VOCAB.includes(d)) &&
+      ds.every(d=>d.n!==entry.n) &&
+      ds.every(d=>String(d.en).trim().toLowerCase()!==ansKey) &&
+      (exactPoolSize<3 || ds.every(d=>PC.syll(d.n).length===n)) &&
+      new Set(ds.map(d=>d.n)).size===3;
+    if(!ok){ bad++; if(badExamples.length<10) badExamples.push({entry:entry.n, ds:ds.map(d=>d.n)}); }
+    ds.forEach(d=>{ totalOpts++; if(d.lv===entry.lv) sameLevelCount++; });
+  });
+  console.log(`\n[10] pinyinOpts over ${N} random words: ${N-bad} clean, ${bad} bad`);
+  console.log(`    same-level ratio: ${totalOpts ? (sameLevelCount/totalOpts).toFixed(2) : "n/a"} (${sameLevelCount}/${totalOpts})`);
+  badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+  check("pinyinOpts valid for every sampled word (0 bad)", bad === 0);
+})();
+
+// --------------------------------------------------------------- check 11
+(function(){
+  console.log("\n[11] v1 -> v2 progress migration");
+  const v1Export = { v:1, w:{"学生":{r:2,w:1,s:1,prov:1}}, sets:{"1":3,"2":0,"3":0,"4":0}, lessons:{"tones":1}, sessions:4, theme:"dark" };
+  const v = PC.validateProgShape(v1Export);
+  console.log(`    ${v.ok?"ok ":"BAD"} validateProgShape accepts a v1-shaped export -> ${JSON.stringify(v)}`);
+  check("validateProgShape accepts a v1-shaped export", v.ok === true);
+
+  // PC.migrateProg is the one function both the app's import handler and its boot-time
+  // migration call — test it directly rather than re-deriving its merge here.
+  const migrated = PC.migrateProg(v.data);
+  console.log(`    migrateProg(v1 data) -> ${JSON.stringify(migrated)}`);
+  check("migrateProg gives a v1 export v:2", migrated.v === 2);
+  check("migrateProg defaults showChars to false", migrated.showChars === false);
+  check("migrateProg keeps word/set/lesson data", migrated.w["学生"].s===1 && migrated.sets["1"]===3 && migrated.lessons.tones===1);
+
+  const v2Export = Object.assign({}, v1Export, {v:2, showChars:true});
+  const v2 = PC.validateProgShape(v2Export);
+  console.log(`    ${v2.ok?"ok ":"BAD"} validateProgShape accepts a v2-shaped export -> ${JSON.stringify(v2)}`);
+  check("validateProgShape accepts a v2-shaped export with showChars", v2.ok === true);
+
+  const migratedV2 = PC.migrateProg(v2.data);
+  check("migrateProg leaves an already-v2 export's showChars alone", migratedV2.showChars === true);
+
+  check("migrateProg on a bare {} gives well-formed v2 defaults",
+    migrateEmptyIsWellFormed(PC.migrateProg({})));
+  function migrateEmptyIsWellFormed(m){
+    return m.v===2 && m.showChars===false && typeof m.w==="object" &&
+      typeof m.sets==="object" && typeof m.lessons==="object" && typeof m.sessions==="number";
+  }
 })();
 
 console.log(`\n${fails===0?"ALL CHECKS PASSED":"FAILURES: "+fails}`);
