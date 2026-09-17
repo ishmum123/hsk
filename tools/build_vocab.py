@@ -204,6 +204,13 @@ def is_tagged_sense(s):
     return bool(TAGGED_RE.search(s))
 
 
+# A sense that OPENS with one of these register tags is a real but rare/technical/
+# dated reading -- fine to show as the gloss when it's the only sense a word has,
+# but not worth joining onto a perfectly good plain sense just because it happened
+# to fit under the 60-char budget (see build_en).
+REGISTER_TAG_RE = re.compile(r'^\((?:bound form|literary|dialect|archaic|old|coll\.)\)', re.I)
+
+
 # ---------------------------------------------------------- gloss sanitiser (v2)
 # The source's `meanings` occasionally embed a Chinese cross-reference inside an
 # otherwise-English gloss, e.g. "you (informal, as opposed to courteous 您)" or
@@ -216,26 +223,43 @@ def is_tagged_sense(s):
 # character it references, so it gets dropped entirely rather than left as a
 # dangling "opposite:" or "abbr. for" with the Chinese word silently removed.
 CJK_RE = re.compile(r'[一-鿿㐀-䶿]+')
-CROSSREF_ONLY_RE = re.compile(
-    r'^(?:as opposed to|opposite\s+of|opposite:?|abbr\.?\s+for|short for|see|'
-    r'also written|also called|colloquial equivalent of|literary equivalent of|'
-    r'equivalent (?:of|to))[\s:]*[\w\s]*$',
-    re.I,
+LEADIN_ALT = (
+    r'as opposed to|opposite\s+of|opposite:?|abbr\.?\s+for|short for|see|'
+    r'also written|also called|same as|variant of|'
+    r'colloquial equivalent of|literary equivalent of|equivalent (?:of|to)'
 )
+CROSSREF_ONLY_RE = re.compile(r'^(?:' + LEADIN_ALT + r')[\s:]*[\w\s]*$', re.I)
+# Same lead-in phrases, but matched wherever one sits directly against a Chinese run
+# -- not just when it's the *whole* clause (see LEADIN_CJK_RE below).
+LEADIN_CJK_RE = re.compile(r'\b(?:' + LEADIN_ALT + r')\b[\s:]*[一-鿿㐀-䶿]+', re.I)
+# Post-sanitize validation: a lead-in word immediately followed by a clause
+# boundary (or end of string) with nothing in between means sanitize_gloss left it
+# dangling after removing the Chinese word it used to point at -- should never match.
+DANGLING_LEADIN_RE = re.compile(r'(?:equivalent|opposite|abbr|written|same as|variant)\s*(?:to|of|for|:)?\s*(?:[,;)]|$)', re.I)
 
 
 def _clean_subclause(text):
     """A single comma-delimited fragment (no surrounding delimiters). Returns ''
     if, once its Chinese run is removed, all that's left is a cross-reference
     lead-in with nothing else -- i.e. the whole fragment only existed to point at
-    that Chinese word. Otherwise returns the fragment with the Chinese run
-    stripped and whitespace collapsed."""
+    that Chinese word. Otherwise, if a lead-in phrase sits directly against a
+    Chinese run *within* a larger fragment (e.g. "particle equivalent to 啊 after
+    a vowel"), excises that lead-in+CJK span together rather than leaving the
+    lead-in dangling with nothing to point at once the character is stripped.
+    If a Chinese run remains even after that (the source embedded it without one
+    of our recognised lead-in phrases, e.g. "often used correlatively with 或
+    etc"), the whole fragment is dropped rather than excising just the character
+    in place -- that would leave nonsense residue like "with or etc" where "or"
+    reads as the English word, not the stripped translation of 或."""
     if not CJK_RE.search(text):
         return text
     without_cjk = CJK_RE.sub('', text)
     if CROSSREF_ONLY_RE.match(without_cjk.strip(' :')):
         return ''
-    return re.sub(r'\s+', ' ', without_cjk).strip()
+    text = LEADIN_CJK_RE.sub('', text)
+    if CJK_RE.search(text):
+        return ''
+    return re.sub(r'\s+', ' ', text).strip()
 
 
 def _clean_commalist(text):
@@ -383,6 +407,22 @@ def truncate_hard(s, limit=57):
     return candidate.rstrip(' ,;').strip() + '…'
 
 
+# Hand-picked gloss text overrides: build_en's automatic sense-selection/joining
+# rules pick a plausible sense, but occasionally the source dataset's own wording
+# doesn't read as the simplest, most idiomatic gloss for that word once its second
+# (register-tagged) sense is correctly excluded from joining. Each entry is a
+# targeted correction, not a rule change, with the reason it's needed recorded here.
+GLOSS_OVERRIDE = {
+    # Source meanings are ["no; not so", "(bound form) not; un-"]. The register-tag
+    # join fix (see docs/PINYIN_SPEC.md Deviations) correctly stops joining the
+    # bound-form sense onto the first, leaving just "no; not so" -- grammatically
+    # fine but "not so" is an awkward, over-literal gloss for HSK 1's basic negation
+    # particle. The bound-form sense's own core word ("not") is the simpler, more
+    # standard English gloss learners expect, so it replaces "not so" here.
+    "不": "no; not",
+}
+
+
 def build_en(meanings):
     filtered = [m for m in meanings if not (SKIP_GLOSS_RE.match(m.strip()) or VARIANT_RE.match(m.strip()))]
     if not filtered:
@@ -399,7 +439,15 @@ def build_en(meanings):
         # Every candidate sense was pure cross-reference text -- not expected on the
         # real corpus (checked: it doesn't happen), but better a raw sense than none.
         sanitized = [ranked[0]] if ranked else ['']
-    picked = sanitized[:2] if len(sanitized) > 1 else sanitized[:1]
+    # Never join a register-tagged sense onto another one -- only show it when it's
+    # the sole sense available (e.g. 有's real-but-rare "(bound form) having; with;
+    # -ful; -ed; -al" shouldn't get joined onto "to have; there is" just because it
+    # fit under the 60-char budget once its unrelated worked example was sanitized away).
+    if len(sanitized) > 1:
+        untagged = [s for s in sanitized if not REGISTER_TAG_RE.match(s)]
+        picked = (untagged or sanitized)[:2]
+    else:
+        picked = sanitized[:1]
     en = "; ".join(picked)
     if len(en) <= 60:
         return en
@@ -454,7 +502,7 @@ def main():
             continue
         py = join_pinyin(pinyin)
         n = join_numeric(numeric)
-        en = build_en(meanings)
+        en = GLOSS_OVERRIDE.get(w) or build_en(meanings)
         rec = {"w": w, "py": py, "n": n, "en": en, "lv": lv}
         if w in entries:
             if lv < entries[w]['lv']:
@@ -507,6 +555,20 @@ def main():
     print(f"\nentries with a Chinese character still in en after sanitize_gloss: {len(cjk_leaked)} (should be 0)")
     for r in cjk_leaked[:20]:
         print(f"  {r['w']}\t{r['en']!r}")
+
+    # 对面/相反 are known false positives on this heuristic -- "opposite" is their
+    # genuine, CJK-free English gloss, not a leftover cross-reference lead-in (hand
+    # -verified; kept in sync with tests/pinyin_checks.js's DANGLING_ALLOWLIST and
+    # documented in docs/PINYIN_SPEC.md's Deviations).
+    DANGLING_ALLOWLIST = {"对面", "相反"}
+    dangling_hits = [r for r in result if DANGLING_LEADIN_RE.search(r['en'])]
+    dangling_real = [r for r in dangling_hits if r['w'] not in DANGLING_ALLOWLIST]
+    dangling_allowlisted = [r for r in dangling_hits if r['w'] in DANGLING_ALLOWLIST]
+    print(f"\nentries with a dangling cross-reference lead-in (e.g. \"equivalent to,\") in en: {len(dangling_real)} real (should be 0), {len(dangling_allowlisted)} allowlisted")
+    for r in dangling_real[:20]:
+        print(f"  {r['w']}\t{r['en']!r}")
+    for r in dangling_allowlisted:
+        print(f"  (allowlisted) {r['w']}\t{r['en']!r}")
 
     if old_by_w:
         py_changed, en_changed = [], []

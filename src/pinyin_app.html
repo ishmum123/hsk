@@ -32,9 +32,15 @@
   html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--font)}
   body{padding-bottom:calc(64px + var(--safe-b))}
   .wrap{max-width:480px;margin:0 auto;padding:16px 16px 24px;min-height:calc(100dvh - 64px - var(--safe-b));display:flex;flex-direction:column}
-  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex:0 0 auto}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex:0 0 auto}
   h1{font-size:18px;font-weight:600;margin:0}
   .score{color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  /* Thin progress bar under the header, replacing the "n / seen" accuracy numbers
+     during a drill — width tracks answered/total; empty (width 0, transparent
+     track) outside a drill. */
+  .hdrbar{height:3px;border-radius:2px;background:transparent;margin-bottom:12px;flex:0 0 auto;overflow:hidden}
+  .hdrbar i{display:block;height:100%;width:0;background:var(--ink);transition:width 0.2s ease}
+  @media (prefers-reduced-motion: reduce){ .hdrbar i{transition:none} }
   .themebtn{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:16px;color:var(--ink);flex:0 0 auto}
   .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 16px;flex:1 1 auto;display:flex;flex-direction:column}
   #panel > .done{display:flex;flex-direction:column;flex:1 1 auto}
@@ -43,6 +49,13 @@
      last-child (e.g. a hidden-until-answered Next button, or a landing screen
      whose action is a button plus a row of secondary options after it). */
   .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+  /* Wraps the prompt+stimulus+options+reveal of a drill item (and Today's plan
+     block): grows to fill whatever vertical space .actions' pinned button doesn't
+     need, then centers its own content in that space, so a 4-option item sits in
+     the middle of the card on a tall phone screen instead of hugging the top. On
+     desktop (see the 900px query) .wrap no longer forces the card to fill the
+     viewport, so there's no extra space here to center into and this is a no-op. */
+  .drill-body{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;min-height:0}
   .q{color:var(--mute);font-size:15px;margin:0 0 10px}
   /* v2's .big/.med stimuli are pinyin or English, not characters — the Chinese font
      only belongs on elements that actually render a word's `w` field (see charSpan()
@@ -122,8 +135,18 @@
      constrain the tab bar to it, so the app reads as a real desktop layout
      rather than a stretched phone screen. Phone layout above is unchanged. */
   @media (min-width: 900px){
-    .wrap{max-width:640px}
-    .tabs{left:50%;transform:translateX(-50%);width:640px;max-width:100vw;border-left:1px solid var(--line);border-right:1px solid var(--line);border-radius:16px 16px 0 0}
+    /* Drop the viewport-height fill: on a wide screen the card should size to its
+       content, not stretch to fill the window (that's what left the dead space
+       below a short drill item or the Today plan block). */
+    .wrap{max-width:640px;min-height:0}
+    /* The tab bar no longer pins to the viewport bottom on desktop: a short card
+       (a one-line Today plan, a single drill item) left 280–550px of bare
+       background between the card and a fixed-position bar. Instead, flow it
+       into the column right under the card, same width, so the page's height is
+       just its content's height. Phone keeps the fixed bottom bar (nothing here
+       touches the base .tabs rule). */
+    body{padding-bottom:24px}
+    .tabs{position:static;left:auto;right:auto;bottom:auto;transform:none;width:640px;max-width:100vw;margin:12px auto 0;padding-bottom:0;border:1px solid var(--line);border-radius:16px}
   }
 </style>
 </head>
@@ -136,6 +159,7 @@
       <button class="themebtn" id="themebtn" aria-label="Toggle theme">◐</button>
     </div>
   </header>
+  <div class="hdrbar" id="hdrbar"><i id="hdrbarfill"></i></div>
   <div id="panel" class="card"></div>
   <div id="live" aria-live="polite" class="sr-only"></div>
 </div>
@@ -150,6 +174,7 @@
 <!-- dev-only data includes; build.sh inlines these into hsk_pinyin.html -->
 <script src="../data/hsk_vocab.js"></script>
 <script src="../data/pinyin_lessons.js"></script>
+<script src="../data/hsk_sentences.js"></script>
 <script src="pinyin_core.js"></script>
 <script>
 "use strict";
@@ -160,7 +185,7 @@ const pick = (a,n) => shuffle(a.slice()).slice(0,n);
 const escapeHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
 // ===================== progress =====================
-let prog = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false };
+let prog = { v:2, w:{}, s:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false };
 const store = {
   async load(){
     try{ if(window.storage){ const r = await window.storage.get("hsk_pinyin"); if(r) prog = Object.assign(prog, JSON.parse(r.value)); return; } }catch(e){}
@@ -210,6 +235,49 @@ function nextNewSet(){
   return null;
 }
 
+// ===================== sentences (Phase 2) =====================
+function markSentence(zh, ok){
+  const p = prog.s[zh] || {r:0,w:0,s:0};
+  if(ok){ p.r++; p.s++; } else { p.w++; p.s=0; }
+  prog.s[zh] = p; store.save();
+}
+// Mastered at streak >= 2, not >= 3 like vocab words — a sentence draws on several
+// already-learned words at once, so a lower bar for "solid" is appropriate.
+const sentenceMastered = zh => (prog.s[zh]||{}).s >= 2;
+const sentenceWeakScore = zh => { const p = prog.s[zh]||{r:0,w:0,s:0}; return p.w*3 - p.s; };
+function weakFirstSentences(list, n){
+  return list.slice().sort((a,b)=>(sentenceWeakScore(b.zh)-sentenceWeakScore(a.zh)) + (Math.random()-0.5)).slice(0,n);
+}
+// The learner's current active level: the level nextNewSet() would teach from next,
+// or one past HSK4 if every set is done. Used for "placed past this sentence's level".
+function currentLevel(){ const nn = nextNewSet(); return nn ? nn.lv : 5; }
+function sentenceWordsLearned(sentence, lwSet){
+  return (sentence.words||[]).every(w=>{
+    if(lwSet.has(w)) return true;
+    const extra = SENTENCE_EXTRA[w];
+    return extra && lwSet.has(extra.base);
+  });
+}
+// Available once every word is learned, OR the learner has already placed/progressed
+// past the sentence's level entirely (so a fresh HSK3 arrival isn't blocked from HSK1
+// sentences just because HSK1 words were never individually drilled one by one).
+function sentenceAvailable(sentence, lwSet, curLv){ return sentenceWordsLearned(sentence, lwSet) || curLv > sentence.lv; }
+// learnedWords()/currentLevel() are each an O(VOCAB) scan; computing the learned-word
+// Set and current level once here (not per sentence inside a .filter callback) keeps
+// this an O(SENTENCES + VOCAB) call instead of O(SENTENCES * VOCAB) (~4M ops on the
+// full corpus for what should be a cheap per-render lookup).
+function availableSentences(){
+  const lwSet = new Set(learnedWords().map(w=>w.w));
+  const curLv = currentLevel();
+  return SENTENCES.filter(s => sentenceAvailable(s, lwSet, curLv));
+}
+// Up to n example sentences containing a given VOCAB word exactly (not through a
+// SENTENCE_EXTRA compound — those are a different literal string), for the Words
+// reveal/teach-card "sentences containing it" list.
+function wordExampleSentences(w, n){
+  return SENTENCES.filter(s => (s.words||[]).indexOf(w) >= 0).slice(0, n);
+}
+
 // ===================== speech =====================
 const SS = window.speechSynthesis || null;
 const hasSpeech = !!(SS && window.SpeechSynthesisUtterance);
@@ -243,6 +311,21 @@ function speechNotice(){
   return `<div class="warn">This browser has no Chinese text-to-speech voice, so listening items show the word instead of playing audio.</div>`;
 }
 
+// ===================== speaker icon (one system, three sizes) =====================
+// SVG (currentColor) instead of an emoji, which renders inconsistently across
+// platforms — used for the big hear-item glyph, the small "replay" control, and
+// the small tap-to-hear icon on teach-card rows.
+function speakerSVG(size){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M4 9v6h3.5l4.9 4V5l-4.9 4H4z" fill="currentColor"/>
+    <path d="M16.2 8.8a5 5 0 0 1 0 6.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+    <path d="M18.6 6.3a8.5 8.5 0 0 1 0 11.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+  </svg>`;
+}
+const SPEAKER_SVG = speakerSVG(38);
+const REPLAY_SVG = speakerSVG(18);
+const TEACH_PLAY_SVG = speakerSVG(14);
+
 // ===================== tone contour glyph =====================
 const CONTOUR = {
   1: `<svg class="contour" width="22" height="14" viewBox="0 0 22 14"><path d="M2 4 L20 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
@@ -261,7 +344,21 @@ function contourFor(n){
 // item: {kind:'mc'|'type', label, html, opts?, a?, reveal, onAnswer?, mount?, check?}
 let D = null;
 function drill(items, onDone, summary){ D = { q: shuffle(items.slice()), right:0, seen:0, miss:[], onDone, summary }; dnext(); }
-function setScore(r,s,left){ $("score").textContent = s ? `${r} / ${s}` + (left!=null ? `  ·  ${left} left` : "") : ""; }
+// answered/total, not right/wrong: the header shows only "k left" (no accuracy
+// numbers) plus a thin progress bar tracking answered/total; both go empty/zero
+// outside a drill (total falsy).
+function setScore(answered, total){
+  const left = total ? Math.max(0, total - answered) : 0;
+  $("score").textContent = (total && left > 0) ? `${left} left` : "";
+  const fill = $("hdrbarfill");
+  if(!fill) return;
+  // width:0% still left a faint 1px mark visible outside a drill (rounding/
+  // subpixel rendering at the bar's rounded corners) -- hide the element outright
+  // at 0 total rather than relying on a zero width to be invisible.
+  if(!total){ fill.style.display = "none"; fill.style.width = "0%"; return; }
+  fill.style.display = "block";
+  fill.style.width = `${Math.min(100, Math.max(0, Math.round((answered/total)*100)))}%`;
+}
 function announce(html){
   const el = $("live"); if(!el) return;
   const tmp = document.createElement("div"); tmp.innerHTML = html || "";
@@ -278,16 +375,26 @@ function showReveal(html){
 function dnext(){
   if(!D) return;
   const P = $("panel");
-  setScore(D.right, D.seen, D.q.length);
   if(!D.q.length){
     const { right, seen, miss, onDone, summary } = D;
+    // Done screen isn't a drill item any more (nothing "left", nothing "answered
+    // of"): reset the header readout/progress-bar to empty here, same as every
+    // non-drill panel render does at its own top, so it doesn't keep showing the
+    // drill's final 100% state.
+    setScore(0, 0);
     P.innerHTML = `<div class="done"><h2>${right} / ${seen}</h2>${summary ? summary(miss) : ""}<button class="next" id="ok">Continue</button></div>`;
+    // The miss summary embeds each missed item's own reveal HTML (sentence items'
+    // reveals carry tappable data-sent/data-widx word spans) directly into this
+    // screen, not into #rv — wire taps here too, or they'd sit dead on the done
+    // screen. Harmless no-op for vocab-only summaries (nothing to match).
+    wireSayTaps(P);
     // Drill is finished: clear state now, before handing control back, so a stray
     // keystroke or the previous screen's stale handler can't act on an empty queue.
     D = null; drillKeyHandler = null;
     $("ok").onclick = onDone;
     return;
   }
+  setScore(D.seen, D.seen + D.q.length);
   const it = D.q.shift();
   if(it.kind === "type"){ renderTypeItem(it); }
   else { renderMcItem(it); }
@@ -295,7 +402,7 @@ function dnext(){
 
 function renderMcItem(it){
   const P = $("panel");
-  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}<div class="opts ${it.optsClass||""}" id="o"></div><div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const opts = shuffle(it.opts.slice());
   const container = $("o");
@@ -311,7 +418,8 @@ function renderMcItem(it){
       D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
       if(it.onAnswer) it.onAnswer(ok);
       showReveal(it.reveal || "");
-      $("nx").style.display = "block"; setScore(D.right, D.seen, D.q.length);
+      if(it.onReveal) it.onReveal();
+      $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
     };
     b.dataset.v = o;
     container.appendChild(b);
@@ -328,10 +436,11 @@ function renderMcItem(it){
 
 function renderTypeItem(it){
   const P = $("panel");
-  P.innerHTML = `<p class="q">${escapeHtml(it.label)}</p>${it.html||""}
+  // Check and Next share .actions (only one visible at a time) so the primary
+  // button pins to the same place in both the unanswered and answered state.
+  P.innerHTML = `<div class="drill-body"><p class="q">${escapeHtml(it.label)}</p>${it.html||""}
     <input type="text" id="tin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="type pinyin…">
-    <button class="next" id="submit">Check</button>
-    <div class="reveal" id="rv"></div><div class="actions"><button class="next" id="nx" style="display:none">Next</button></div>`;
+    <div class="reveal" id="rv"></div></div><div class="actions"><button class="next" id="submit">Check</button><button class="next" id="nx" style="display:none">Next</button></div>`;
   if(it.mount) it.mount();
   const input = $("tin"); input.focus();
   let answered = false;
@@ -342,7 +451,7 @@ function renderTypeItem(it){
     D.seen++; if(ok) D.right++; else { D.miss.push(it); D.q.push(it); }
     if(it.onAnswer) it.onAnswer(ok);
     showReveal((ok ? "" : `<div class="diff">you typed: ${escapeHtml(input.value)}</div>`) + (it.reveal||""));
-    $("nx").style.display = "block"; setScore(D.right, D.seen, D.q.length);
+    $("nx").style.display = "block"; setScore(D.seen, D.seen + D.q.length);
   }
   $("submit").onclick = submit;
   $("nx").onclick = dnext;
@@ -367,7 +476,7 @@ function quitDrill(){ D = null; drillKeyHandler = null; render(); }
 // only when the learner has opted in — never the only cue even when shown.
 function revealBlock(entry){
   const chars = prog.showChars ? `<div style="font-family:var(--zh);font-size:20px;margin-top:2px">${escapeHtml(entry.w)}</div>` : "";
-  return `<div class="py">${PC.pyHTML(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(PC.gloss(entry))}</div>${chars}`;
+  return `<div class="py">${PC.pyHTML(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(PC.gloss(entry))}</div>${chars}${exampleSentencesHTML(entry)}`;
 }
 // hear — TTS plays the word; pick the meaning. No text stimulus (falls back to pinyin,
 // never characters, if this browser has no zh voice).
@@ -380,7 +489,8 @@ function hearItem(entry){
       ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`
       : `<div class="big">${PC.pyHTML(entry.n)}</div>`),
     opts, a: PC.gloss(entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
-    mount: () => { if(hasSpeech){ const btn = $("sp"); playWithPulse(entry.w, btn); btn.onclick = ()=>playWithPulse(entry.w, btn); } } };
+    mount: () => { if(hasSpeech){ const btn = $("sp"); playWithPulse(entry.w, btn); btn.onclick = ()=>playWithPulse(entry.w, btn); } },
+    onReveal: wireSayTaps };
 }
 // read — pinyin shown (tone-coloured); pick the meaning. Audio auto-plays.
 function readItem(entry){
@@ -390,7 +500,8 @@ function readItem(entry){
   return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero",
     html: `<div class="big">${PC.pyHTML(entry.n)}</div>`,
     opts, a: PC.gloss(entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
-    mount: () => { if(hasSpeech) say(entry.w); } };
+    mount: () => { if(hasSpeech) say(entry.w); },
+    onReveal: wireSayTaps };
 }
 // recall — meaning shown; pick the pinyin. Distractors are other real words with the
 // same syllable count (not phonetic near-misses — those confuse rather than teach meaning).
@@ -400,7 +511,122 @@ function recallItem(entry){
   const rv = revealBlock(entry);
   return { kind:"mc", label:"Which word is this?", optsClass:"opts-hero",
     html: `<div class="med" style="text-align:center">${escapeHtml(PC.gloss(entry))}</div>`,
-    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
+    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markWord(entry.w, ok),
+    onReveal: wireSayTaps };
+}
+
+// ===================== sentences: rendering (Phase 2) =====================
+const VOCAB_BY_W = {}; VOCAB.forEach(v=>{ VOCAB_BY_W[v.w] = v; });
+// Looks up a sentence's position in the real SENTENCES array. Tap targets key
+// off this index (plus a word index) rather than embedding the sentence's own
+// characters in a data-* attribute -- with `showChars` off, the DOM must not
+// carry Chinese text anywhere, even invisibly, and a raw data-say="你们" would
+// still show up on a DOM grep. Indices are just numbers; the actual character
+// string is only ever looked up from the in-memory SENTENCES/words arrays at
+// tap time, never written into markup.
+function sentenceIndexOf(sentence){ return SENTENCES.indexOf(sentence); }
+// Generic: wires a single delegated click listener on `root` (default #rv) that
+// speaks the tapped sentence or word. `data-sent` (a SENTENCES index) alone means
+// "speak the whole sentence" (exampleSentencesHTML's row); `data-sent` +
+// `data-widx` (a words[] index) means "speak just that word" (sentencePyHTML's
+// per-word spans). e.target.closest() picks the nearest match, so a tap on a word
+// span inside a whole-sentence row resolves to the word, not the row.
+function wireSayTaps(root){
+  const el = root || $("rv"); if(!el) return;
+  el.addEventListener("click", e => {
+    const t = e.target.closest("[data-sent]");
+    if(!t || !el.contains(t)) return;
+    const s = SENTENCES[+t.dataset.sent]; if(!s) return;
+    const text = t.dataset.widx !== undefined ? (s.words||[])[+t.dataset.widx] : s.zh;
+    if(text) say(text);
+  });
+}
+// Tone-coloured, word-spaced pinyin for a sentence, each word wrapped so it can be
+// tapped to hear alone. A VOCAB word colours per-syllable via pyHTML(entry.n) (exact,
+// since PC.mark(entry.n) is checked to reproduce entry.py exactly); a SENTENCE_EXTRA
+// compound (no numbered form to derive per-syllable tones from) colours as one unit
+// by its last syllable's tone instead (PC.guessTone) — see the Deviations note.
+// blankIndex, if given, renders that word's slot as "____" instead (gapSentence) and
+// never tappable (tapping it would say the answer).
+function sentencePyHTML(sentence, blankIndex){
+  const toks = PC.sentenceTokens(sentence);
+  if(!toks) return escapeHtml(sentence.py); // alignment guard; shouldn't happen on validated data
+  const sIdx = sentenceIndexOf(sentence);
+  return toks.map(t => {
+    if(blankIndex === t.index) return `<span class="t5">____</span>${escapeHtml(t.punct)}`;
+    const entry = VOCAB_BY_W[t.word];
+    let inner = entry ? PC.pyHTML(entry.n) : `<span class="t${PC.guessTone(t.core)}">${escapeHtml(t.core)}</span>`;
+    if(t.index === 0) inner = PC.capitalizeFirstSpan(inner);
+    return `<span data-sent="${sIdx}" data-widx="${t.index}">${inner}</span>${escapeHtml(t.punct)}`;
+  }).join(" ");
+}
+function sentCharSpanBlock(sentence){
+  return prog.showChars ? `<div style="font-family:var(--zh);font-size:20px;margin-top:2px">${escapeHtml(sentence.zh)}</div>` : "";
+}
+function sentenceRevealBlock(sentence){
+  return `<div class="py">${sentencePyHTML(sentence)}</div><div style="color:var(--mute)">${escapeHtml(sentence.en)}</div>${sentCharSpanBlock(sentence)}`;
+}
+// Up to 2 example sentences for a vocab word's reveal/teach card (Words screen),
+// each tappable to hear. Characters gated the same way as everywhere else.
+function exampleSentencesHTML(entry){
+  const examples = wordExampleSentences(entry.w, 2);
+  if(!examples.length) return "";
+  const rows = examples.map(s => `<div class="rowset" data-sent="${sentenceIndexOf(s)}" style="cursor:pointer"><span class="py" style="flex:1">${sentencePyHTML(s)}</span></div><div class="en" style="margin:-6px 0 8px">${escapeHtml(s.en)}${sentCharSpanBlock(s)}</div>`).join("");
+  return `<p class="q" style="margin-top:12px">Example${examples.length>1?"s":""}:</p>${rows}`;
+}
+
+// ===================== sentence drill item builders (Phase 2) =====================
+// hearSentence — TTS plays the sentence; pick the meaning. Reveal: tone-coloured
+// word-spaced pinyin (each word tappable to hear it alone), English, characters if
+// enabled.
+function hearSentence(sentence){
+  const ds = PC.sentenceOpts(sentence, SENTENCES);
+  const opts = [sentence.en, ...ds.map(d=>d.en)];
+  const rv = `<div class="q">You heard:</div>${sentenceRevealBlock(sentence)}`;
+  return { kind:"mc", label:"What did they say?", optsClass:"opts-hero",
+    html: speechNotice() + (hasSpeech
+      ? `<div class="hear-stage"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>`
+      : `<div class="med">${sentencePyHTML(sentence)}</div>`),
+    opts, a: sentence.en, reveal: rv, onAnswer: ok=>markSentence(sentence.zh, ok),
+    mount: () => { if(hasSpeech){ const btn = $("sp"); playWithPulse(sentence.zh, btn); btn.onclick = ()=>playWithPulse(sentence.zh, btn); } },
+    onReveal: wireSayTaps };
+}
+// readSentence — pinyin shown; pick the meaning. Audio auto-plays. Same distractors
+// and reveal as hearSentence.
+function readSentence(sentence){
+  const ds = PC.sentenceOpts(sentence, SENTENCES);
+  const opts = [sentence.en, ...ds.map(d=>d.en)];
+  const rv = sentenceRevealBlock(sentence);
+  return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero",
+    html: `<div class="med">${sentencePyHTML(sentence)}</div>`,
+    opts, a: sentence.en, reveal: rv, onAnswer: ok=>markSentence(sentence.zh, ok),
+    mount: () => { if(hasSpeech) say(sentence.zh); },
+    onReveal: wireSayTaps };
+}
+// gapSentence — pinyin shown with one content word blanked; pick the missing word's
+// pinyin. Returns null when the sentence has no eligible content word to blank (a
+// function-word-only or off-level sentence) — callers fall back to readSentence.
+function gapSentence(sentence){
+  const idxs = PC.gapCandidateIndices(sentence, VOCAB);
+  if(!idxs.length) return null;
+  const idx = idxs[Math.floor(Math.random()*idxs.length)];
+  const entry = VOCAB_BY_W[sentence.words[idx]];
+  const ds = PC.gapOpts(entry, VOCAB);
+  const opts = [PC.mark(entry.n), ...ds.map(d=>PC.mark(d.n))];
+  const rv = sentenceRevealBlock(sentence);
+  return { kind:"mc", label:"What's the missing word?", optsClass:"opts-hero",
+    html: `<div class="med">${sentencePyHTML(sentence, idx)}</div>`,
+    opts, a: PC.mark(entry.n), reveal: rv, onAnswer: ok=>markSentence(sentence.zh, ok),
+    mount: () => { if(hasSpeech) say(sentence.zh); },
+    onReveal: wireSayTaps };
+}
+// Picks hear/read/gap ~= 50/25/25 for one sentence, falling back to readSentence if
+// the gap draw lands on a sentence with no eligible blank.
+function sentenceItemFor(sentence){
+  const r = Math.random();
+  if(r < 0.5) return hearSentence(sentence);
+  if(r < 0.75) return readSentence(sentence);
+  return gapSentence(sentence) || readSentence(sentence);
 }
 
 // ===================== Extras-only pronunciation items (tone pattern / typed pinyin) =====================
@@ -417,20 +643,20 @@ function toneItem(entry){
     const cand = chunks.map(c => Math.random()<0.6 ? (c.slice(0,-1)+ (1+Math.floor(Math.random()*5))) : c);
     opts.add(cand.map(c=>c.slice(-1)).join("-"));
   }
-  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(entry.en)}</div>`;
+  const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div><div style="color:var(--mute)">${escapeHtml(PC.gloss(entry))}</div>`;
   const stimulus = prog.showChars ? `<div class="big" style="font-family:var(--zh)">${escapeHtml(entry.w)}</div>` : "";
   return { kind:"mc", label:"Which tone pattern?",
-    html: stimulus + `<div class="en">${escapeHtml(toneless)}</div>` + (!prog.showChars && hasSpeech ? `<div class="listen-stage"><button class="replay" id="rpTone" aria-label="Replay">▶</button></div>` : ""),
+    html: stimulus + `<div class="en">${escapeHtml(toneless)}</div>` + (!prog.showChars && hasSpeech ? `<div class="listen-stage"><button class="replay" id="rpTone" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""),
     mount: () => { if(!prog.showChars && hasSpeech){ say(entry.w); $("rpTone").onclick = ()=>say(entry.w); } },
     opts:[...opts], a: answer, reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
 }
 function typeItem(entry){
   const rv = `<div class="py">${PC.pyHTML(entry.n)} ${contourFor(entry.n)}</div>`;
   const stimulus = prog.showChars
-    ? `<div class="big" style="font-family:var(--zh)">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(entry.en)}</div>`
-    : `<div class="med" style="text-align:center">${escapeHtml(entry.en)}</div>`;
+    ? `<div class="big" style="font-family:var(--zh)">${escapeHtml(entry.w)}</div><div class="en">${escapeHtml(PC.gloss(entry))}</div>`
+    : `<div class="med" style="text-align:center">${escapeHtml(PC.gloss(entry))}</div>`;
   return { kind:"type", label:"Type the pinyin (numbers or tone marks)",
-    html: stimulus + (hasSpeech ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">▶</button></div>` : ""),
+    html: stimulus + (hasSpeech ? `<div class="listen-stage"><button class="replay" id="rp2" aria-label="Replay">${REPLAY_SVG}</button></div>` : ""),
     mount: () => { if(hasSpeech) $("rp2").onclick = ()=>say(entry.w); },
     check: val => PC.acceptTypeAnswer(val, entry), reveal: rv, onAnswer: ok=>markWord(entry.w, ok) };
 }
@@ -442,7 +668,7 @@ function missSummary(miss){
 // ===================== lesson item wrapper =====================
 function lessonItem(it){
   return { kind:"mc", label: it.q,
-    html: it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">▶</button></div>` : "",
+    html: it.say ? `<div class="listen-stage"><button class="replay" id="rpl" aria-label="Replay">${REPLAY_SVG}</button></div>` : "",
     mount: () => { if(it.say && hasSpeech){ say(it.say); $("rpl").onclick = ()=>say(it.say); } },
     opts: it.opts, a: it.a, reveal: `<div>${escapeHtml(it.rv||"")}</div>` };
 }
@@ -474,21 +700,47 @@ function todayRender(){
   setScore(0,0);
   const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
   const n = (prog.sessions||0) + 1;
+  const availSent = availableSentences();
   const steps = [
     ["Review", lw.length ? "15 items, weakest first" : "nothing learned yet — skipped"],
     ["Learn", nn ? `HSK ${nn.lv}, set ${nn.set+1}` : "everything covered"],
     ["Listen", lw.length ? "12 items" : "skipped until something is learned"],
-    ["Recall", lw.length ? "8 items" : "skipped until something is learned"]
+    ["Recall", lw.length ? "8 items" : "skipped until something is learned"],
+    ["Sentences", availSent.length >= 8 ? "8 items, weakest first" : "skipped until 8+ sentences are available"]
   ];
-  const showSoundsHint = !Object.keys(prog.lessons).length && !prog.dismissedSoundsHint;
-  P.innerHTML = `${pathStrip()}
-    ${!lw.length ? `<div class="stmt">New here? Take the Placement test in the Test tab so today starts where your knowledge ends.</div>` : ""}
-    ${showSoundsHint ? `<div class="stmt" id="soundsHint">New to pinyin? The Sounds tab explains how to read it. <button class="ghost" id="dismissHint" style="margin-top:8px">Got it</button></div>` : ""}
+  // Both hints hide by real state (placement taken / a lesson opened), not a
+  // dismiss button, and each carries the action itself rather than pointing at
+  // another tab.
+  const showPlaceHint = !prog.placedOnce;
+  const showSoundsHint = !prog.soundsOpened;
+  P.innerHTML = `<div class="drill-body">${pathStrip()}
+    ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
+    ${showSoundsHint ? `<div class="stmt">New to pinyin? A quick lesson explains how it's spelled and sounds.<button class="next" id="hintSounds" style="margin-top:8px">Learn how to read it</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
-    <div class="actions"><button class="next" id="go">Start today</button></div>`;
-  if(showSoundsHint) $("dismissHint").onclick = () => { prog.dismissedSoundsHint = true; store.save(); todayRender(); };
+    </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
+  if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
+  if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
   $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
+}
+// Switches the tab bar to Test/Sounds (for the header title and so the tab
+// highlight stays honest) and jumps straight into the action, instead of landing
+// the learner on that tab's menu screen and telling them what to click there.
+function switchToTab(t, title){
+  tab = t;
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on", x.dataset.t===t));
+  $("htitle").textContent = title;
+}
+function enterPlacementFromToday(){
+  switchToTab("test", "Test");
+  testSel = "placement";
+  startPlacement();
+}
+function enterFirstSoundsLessonFromToday(){
+  switchToTab("sounds", "Sounds");
+  soundsSel = 0;
+  const backToToday = () => { switchToTab("today", "Today"); soundsSel = null; todayRender(); };
+  lessonTeach(LESSONS[0], () => { prog.lessons[LESSONS[0].id] = 1; store.save(); backToToday(); }, backToToday);
 }
 function todayStep(){
   const lw = learnedWords(); const nn = nextNewSet();
@@ -520,7 +772,12 @@ function todayStep(){
     return todayStep();
   }
   if(s === 3){ // Recall: 8 recall items from learned words
-    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>recallItem(w)), todayFinish, missSummary); return; }
+    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>recallItem(w)), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 4){ // Sentences: 8 items hear/read/gap ~50/25/25, from available sentences weakest-first
+    const availSent = availableSentences();
+    if(availSent.length >= 8){ drill(weakFirstSentences(availSent,8).map(sentenceItemFor), todayFinish, missSummary); return; }
     return todayFinish();
   }
   todayFinish();
@@ -540,10 +797,18 @@ function vocabTeach(list, lv, onDrill){
   const tl = $("tl");
   list.forEach(w => {
     const row = document.createElement("div"); row.className = "rowset";
-    row.innerHTML = `${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span><span style="color:var(--mute);flex:0 0 auto">▶</span>`;
+    row.innerHTML = `${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span><span style="color:var(--mute);flex:0 0 auto">${TEACH_PLAY_SVG}</span>`;
     row.onclick = () => say(w.w);
     row.style.cursor = "pointer";
     tl.appendChild(row);
+    const exHtml = exampleSentencesHTML(w);
+    if(exHtml){
+      const exWrap = document.createElement("div");
+      exWrap.style.cssText = "margin:-4px 0 10px;padding-left:2px;font-size:14px";
+      exWrap.innerHTML = exHtml;
+      wireSayTaps(exWrap);
+      tl.appendChild(exWrap);
+    }
   });
   $("dr").onclick = onDrill;
 }
@@ -553,6 +818,9 @@ function vocabTeach(list, lv, onDrill){
 // that element and $(id).onclick throws on the now-null lookup.
 function lessonTeach(lesson, onDone, onBack){
   setScore(0,0);
+  // "Any lesson opened" (not "completed") is what hides Today's sounds hint --
+  // stamped here, the one place every lesson-teach entry point goes through.
+  if(!prog.soundsOpened){ prog.soundsOpened = true; store.save(); }
   const P = $("panel");
   P.innerHTML = `${onBack ? '<div class="row"><button id="back">‹ lessons</button></div>' : ""}<p class="q">${escapeHtml(lesson.blurb)}</p>
     <div id="cards"></div><div class="actions"><button class="next" id="dr">Drill</button></div>`;
@@ -633,13 +901,13 @@ function renderWordBody(){
   const body = $("wbody");
   const q = wordsQuery.trim().toLowerCase();
   if(q){
-    const matches = VOCAB.filter(v => v.en.toLowerCase().includes(q) || PC.strip(v.py).toLowerCase().includes(q) || v.py.toLowerCase().includes(q));
+    const matches = VOCAB.filter(v => PC.gloss(v).toLowerCase().includes(q) || PC.strip(v.py).toLowerCase().includes(q) || v.py.toLowerCase().includes(q));
     if(!matches.length){ body.innerHTML = `<p class="q">No matches.</p>`; return; }
     body.innerHTML = `<div id="wl"></div>`;
     const wl = $("wl");
     matches.slice(0,150).forEach(w => {
       const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
-      row.innerHTML = `${charSpan(w,"zh")}<span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
+      row.innerHTML = `${charSpan(w,"zh")}<span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span></span>`;
       row.onclick = () => say(w.w);
       wl.appendChild(row);
     });
@@ -648,8 +916,12 @@ function renderWordBody(){
   const list = levelList(wordsLv); const total = nSets(wordsLv); const done = prog.sets[wordsLv]||0;
   if(wordsSet == null) wordsSet = Math.min(done, total-1);
   const set = list.slice(wordsSet*10, wordsSet*10+10);
+  // "review" needs 5+ learned words to draw a pool from; hide it rather than
+  // leave a dead-end click when there's nothing to review yet — "Drill this
+  // set" below is always the direct next action regardless.
+  const canReview = learnedWords().length >= 5;
   body.innerHTML = `<div class="row">${[1,2,3,4].map(lv=>`<button data-l="${lv}" class="${lv===wordsLv?'on':''}">HSK ${lv}</button>`).join("")}</div>
-    <div class="row"><button id="pv">‹</button><button class="on">Set ${wordsSet+1} / ${total}${wordsSet<done?' ✓':''}</button><button id="nx">›</button><button id="jump">next new</button><button id="rev">review</button></div>
+    <div class="row"><button id="pv">‹</button><button class="on">Set ${wordsSet+1} / ${total}${wordsSet<done?' ✓':''}</button><button id="nx">›</button><button id="jump">next new</button>${canReview ? `<button id="rev">review</button>` : ""}</div>
     <div id="wl"></div><div class="actions"><button class="next" id="dr">Drill this set</button></div>`;
   body.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ wordsLv=+b.dataset.l; wordsSet=null; renderWordBody(); });
   $("pv").onclick = () => { wordsSet = Math.max(0, wordsSet-1); renderWordBody(); };
@@ -658,7 +930,7 @@ function renderWordBody(){
   const wl = $("wl");
   set.forEach(w => {
     const row = document.createElement("div"); row.className = "wl"; row.style.cursor = "pointer";
-    row.innerHTML = `${charSpan(w,"zh")}<span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></span>`;
+    row.innerHTML = `${charSpan(w,"zh")}<span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span></span>`;
     row.onclick = () => say(w.w);
     wl.appendChild(row);
   });
@@ -676,8 +948,8 @@ function renderWordBody(){
       store.save(); wordsRender();
     }, missSummary);
   };
-  $("rev").onclick = () => {
-    const lw = learnedWords(); if(lw.length < 5){ alert("Finish a set first."); return; }
+  if(canReview) $("rev").onclick = () => {
+    const lw = learnedWords();
     drill(weakFirst(lw, 15).map(w=>{ const r = Math.random(); return r<0.5?hearItem(w):r<0.75?readItem(w):recallItem(w); }), wordsRender, missSummary);
   };
 }
@@ -689,36 +961,60 @@ function testRender(){
   const P = $("panel");
   if(testSel === "placement"){ placeRender(); return; }
   if(testSel === "extras"){ extrasRender(); return; }
+  const lw = learnedWords(); const availSent = availableSentences();
+  // "Learn a few words first" used to be a dead-end alert on the Listen/Recall/
+  // Sentences buttons; replaced with an inline note + the direct action
+  // (placement seeds prog.sets, which is the fastest way past this gate) —
+  // same startPlacement() path Today's own hint uses. The gated buttons
+  // themselves are simply left out rather than shown disabled, since there's
+  // nothing useful to click on them yet.
+  const needMore = lw.length < 8 || availSent.length < 8;
+  // Buttons already drill fewer than 20 when the pool is smaller (weakFirst just
+  // slices to whatever's available) — label them by the actual count so the
+  // number on the button is never a promise the drill doesn't keep.
+  const listenN = Math.min(20, lw.length), recallN = listenN, sentN = Math.min(20, availSent.length);
+  // When gated, the note's own button IS "take placement" — showing the plain
+  // "Take Placement" button too would put two identical CTAs on screen. Only one
+  // shows at a time.
   P.innerHTML = `<p class="q">Placement finds where to start. Free tests draw from what's already learned.</p>
     <div class="actions">
-      <button class="next" id="pl">Take Placement</button>
-      <div class="row" style="margin-top:8px;margin-bottom:0">
-        <button class="ghost" id="tListen" style="flex:1">Listen 20</button>
-        <button class="ghost" id="tRecall" style="flex:1">Recall 20</button>
-      </div>
+      ${needMore ? `<div class="stmt">Learn a few words first — placement finds where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<button class="next" id="pl">Take Placement</button>`}
+      ${lw.length >= 8 ? `<div class="row" style="margin-top:8px;margin-bottom:0">
+        <button class="ghost" id="tListen" style="flex:1">Listen ${listenN}</button>
+        <button class="ghost" id="tRecall" style="flex:1">Recall ${recallN}</button>
+      </div>` : ""}
+      ${availSent.length >= 8 ? `<button class="ghost" id="tSentences">Sentences ${sentN}</button>` : ""}
       <button class="ghost" id="extras">Extras: tones · typed pinyin</button>
     </div>`;
-  $("pl").onclick = () => { testSel = "placement"; testRender(); };
   $("extras").onclick = () => { testSel = "extras"; testRender(); };
-  const need = () => { const lw = learnedWords(); if(lw.length < 8){ alert("Learn a few words first (Today or Words tab)."); return null; } return lw; };
-  $("tListen").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>hearItem(w)), testRender, missSummary); };
-  $("tRecall").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>recallItem(w)), testRender, missSummary); };
+  if(needMore){ $("needPlace").onclick = enterPlacementFromToday; }
+  else { $("pl").onclick = () => { testSel = "placement"; testRender(); }; }
+  if(lw.length >= 8){
+    $("tListen").onclick = () => drill(weakFirst(lw,20).map(w=>hearItem(w)), testRender, missSummary);
+    $("tRecall").onclick = () => drill(weakFirst(lw,20).map(w=>recallItem(w)), testRender, missSummary);
+  }
+  if(availSent.length >= 8){
+    $("tSentences").onclick = () => drill(weakFirstSentences(availSent,20).map(s=>hearSentence(s)), testRender, missSummary);
+  }
 }
 // Extras: v1's pronunciation-focused items (tone pattern, typed pinyin), kept as an
 // optional secondary test — not part of Today/Review/Placement/Listen/Recall in v2.
 function extrasRender(){
   setScore(0,0);
   const P = $("panel");
+  const lw = learnedWords();
+  const needMore = lw.length < 8;
+  const n = Math.min(20, lw.length);
   P.innerHTML = `<div class="row"><button id="back">‹ test</button></div>
     <p class="q">Optional pronunciation drills, from words you've already learned.</p>
-    <div class="row">
-      <button class="ghost" id="tType" style="flex:1">Type 20</button>
-      <button class="ghost" id="tTone" style="flex:1">Tones 20</button>
-    </div>`;
+    ${needMore ? `<div class="stmt">Learn a few words first — placement finds where to start.<button class="next" id="needPlace" style="margin-top:8px">Take the placement test</button></div>` : `<div class="row">
+      <button class="ghost" id="tType" style="flex:1">Type ${n}</button>
+      <button class="ghost" id="tTone" style="flex:1">Tones ${n}</button>
+    </div>`}`;
   $("back").onclick = () => { testSel = null; testRender(); };
-  const need = () => { const lw = learnedWords(); if(lw.length < 8){ alert("Learn a few words first (Today or Words tab)."); return null; } return lw; };
-  $("tType").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>typeItem(w)), () => { testSel="extras"; testRender(); }, missSummary); };
-  $("tTone").onclick = () => { const lw = need(); if(lw) drill(weakFirst(lw,20).map(w=>toneItem(w)), () => { testSel="extras"; testRender(); }, missSummary); };
+  if(needMore){ $("needPlace").onclick = enterPlacementFromToday; return; }
+  $("tType").onclick = () => drill(weakFirst(lw,20).map(w=>typeItem(w)), () => { testSel="extras"; testRender(); }, missSummary);
+  $("tTone").onclick = () => drill(weakFirst(lw,20).map(w=>toneItem(w)), () => { testSel="extras"; testRender(); }, missSummary);
 }
 // strata() lives in pinyin_core.js (PC.strata) so the app and the node checks share one
 // definition. v2 drops the foundations block entirely — placement is 40 vocab-only
@@ -731,28 +1027,32 @@ function placeRender(){
     ${lw.length ? `<p class="q">Current: ${lw.length} words learned. Retaking resets set position and clears any provisional or drilled-ahead words that haven't stuck yet.</p>` : ""}
     <div class="actions"><button class="next" id="go">Start placement</button></div>`;
   $("back").onclick = () => { testSel = null; testRender(); };
-  $("go").onclick = () => {
-    const st = PC.strata(VOCAB);
-    const bucketItems = [];
-    st.forEach((b,bi) => { const k = bi%2===0 ? 2 : 3; pick(b.words, k).forEach(w=>bucketItems.push({b:bi, w})); });
-    PL = { vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})) };
-    placeVocabNext();
-  };
+  $("go").onclick = startPlacement;
+}
+// Pulled out of placeRender so Today's "New here?" hint can jump straight into
+// placement without first landing on the Test tab's placement-intro screen.
+function startPlacement(){
+  D = null; drillKeyHandler = null; setScore(0,0);
+  const st = PC.strata(VOCAB);
+  const bucketItems = [];
+  st.forEach((b,bi) => { const k = bi%2===0 ? 2 : 3; pick(b.words, k).forEach(w=>bucketItems.push({b:bi, w})); });
+  PL = { vocab:{items:shuffle(bucketItems), i:0}, st, res: st.map(()=>({r:0,n:0})) };
+  placeVocabNext();
 }
 function placeVocabNext(){
   const P = $("panel"); const V = PL.vocab;
   if(V.i >= V.items.length){ placeResult(); return; }
-  const it = V.items[V.i++]; const w = it.w; setScore(V.i, V.items.length);
+  const it = V.items[V.i++]; const w = it.w; setScore(V.i - 1, V.items.length);
   const ds = PC.meaningOpts(w, VOCAB);
-  const opts = shuffle([w.en, ...ds.map(d=>d.en)]);
+  const opts = shuffle([PC.gloss(w), ...ds.map(d=>PC.gloss(d))]);
   const asHear = hasSpeech && Math.random() < 0.5;
   P.innerHTML = `<p class="q">Words ${V.i} / ${V.items.length}</p>
-    ${asHear ? `<div class="hear-stage"><button class="speaker" id="rp" aria-label="Replay">🔊</button></div>` : `<div class="big">${PC.pyHTML(w.n)}</div>`}
+    ${asHear ? `<div class="hear-stage"><button class="speaker" id="rp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : `<div class="big">${PC.pyHTML(w.n)}</div>`}
     <div class="opts" id="o"></div>`;
   if(asHear){ const btn = $("rp"); playWithPulse(w.w, btn); btn.onclick = ()=>playWithPulse(w.w, btn); }
   opts.forEach(o => {
     const b = document.createElement("button"); b.textContent = o;
-    b.onclick = () => { PL.res[it.b].n++; if(o===w.en) PL.res[it.b].r++; placeVocabNext(); };
+    b.onclick = () => { PL.res[it.b].n++; if(o===PC.gloss(w)) PL.res[it.b].r++; placeVocabNext(); };
     $("o").appendChild(b);
   });
 }
@@ -778,8 +1078,9 @@ function placeResult(){
   prog.sets = {1:0,2:0,3:0,4:0};
   for(let i=0;i<passed;i++){ const b = st[i]; prog.sets[b.lv] = Math.max(prog.sets[b.lv], b.s1); }
   learnedWords().forEach(w => { if(!prog.w[w.w]) prog.w[w.w] = {r:1,w:0,s:1,prov:1}; });
+  prog.placedOnce = true;
   store.save();
-  const pos = stop==null ? "everything covered — go straight to Words and pick a set" : `HSK ${st[passed].lv}, set ${st[passed].s0+1}`;
+  const pos = stop==null ? "everything covered" : `HSK ${st[passed].lv}, set ${st[passed].s0+1}`;
   const P = $("panel");
   P.innerHTML = `<div class="done"><h2>Start at ${pos}</h2>
     <table class="stats">${rows.map(([b,r,acc],i)=>`<tr><td>HSK ${b.lv} sets ${b.s0+1}–${b.s1}</td><td style="color:${i<passed?'var(--ok)':'var(--bad)'}">${r.r}/${r.n}</td></tr>`).join("")}</table>
@@ -793,10 +1094,14 @@ function progressRender(){
   setScore(0,0);
   const P = $("panel");
   const lwAll = learnedWords();
+  const availSent = availableSentences();
   const rows = [1,2,3,4].map(lv => {
     const list = levelList(lv); const learnedList = lwAll.filter(w=>w.lv===lv);
     const masteredN = learnedList.filter(w=>mastered(w.w)).length;
-    return `<tr><td>HSK ${lv}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>`;
+    const sentLv = SENTENCES.filter(s=>s.lv===lv); const sentAvailLv = availSent.filter(s=>s.lv===lv);
+    const sentMasteredN = sentAvailLv.filter(s=>sentenceMastered(s.zh)).length;
+    return `<tr><td>HSK ${lv}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>
+      <tr><td>HSK ${lv} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>`;
   }).join("");
   const weak = weakFirst(lwAll.filter(w=>weakScore(w.w)>0), 10);
   P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No Chinese text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
@@ -805,7 +1110,7 @@ function progressRender(){
       <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
     <div class="row" style="margin-top:14px"><button class="chip ${prog.showChars?'on':''}" id="toggleChars">Show characters</button></div>
     <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
-    ${weak.map(w=>`<div class="rowset">${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(w.en)}</span></div>`).join("")}
+    ${weak.map(w=>`<div class="rowset">${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span></div>`).join("")}
     <div class="row" style="margin-top:16px">
       <button class="ghost" id="exp" style="flex:1">Export progress</button>
       <button class="ghost" id="imp" style="flex:1">Import progress</button>
@@ -814,6 +1119,7 @@ function progressRender(){
       <textarea id="imptxt" placeholder="Paste exported JSON here"></textarea>
       <input type="file" id="impfile" accept="application/json" style="margin-top:8px">
       <button class="next" id="doimport">Load</button>
+      <div id="impErr" class="warn" style="display:none;margin-top:8px"></div>
     </div>
     <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
   $("toggleChars").onclick = () => { prog.showChars = !prog.showChars; store.save(); progressRender(); };
@@ -826,14 +1132,16 @@ function progressRender(){
   };
   $("imp").onclick = () => { $("impbox").style.display = $("impbox").style.display==="none" ? "block" : "none"; };
   $("impfile").onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { $("imptxt").value = r.result; }; r.readAsText(f); };
+  const showImportError = msg => { const el = $("impErr"); el.textContent = msg; el.style.display = "block"; };
   $("doimport").onclick = () => {
     // Validation runs inside the try so a throw from a malformed-but-JSON-parseable
     // shape becomes a rejection message too, instead of an uncaught error and a
-    // silent no-op.
+    // silent no-op. Errors render inline in the import box (not alert()) so the
+    // message sits right next to the thing that needs fixing.
     try{
       const data = JSON.parse($("imptxt").value);
       const v = PC.validateProgShape(data);
-      if(!v.ok){ alert("That doesn't look like valid exported progress: " + v.reason); return; }
+      if(!v.ok){ showImportError("That doesn't look like valid exported progress: " + v.reason); return; }
       const prevTheme = prog.theme, prevShowChars = prog.showChars;
       // Both v1 and v2 exports pass validateProgShape; PC.migrateProg (shared with the
       // boot-time migration below) forces v:2 and defaults showChars false.
@@ -842,12 +1150,12 @@ function progressRender(){
       if(v.data.showChars === undefined) prog.showChars = prevShowChars; // same for showChars
       store.save(); applyTheme(); progressRender();
     }catch(e){
-      alert("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
+      showImportError("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
     }
   };
   $("reset").onclick = () => {
     if(!confirm("Reset all progress? This can't be undone.")) return;
-    prog = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars };
+    prog = { v:2, w:{}, s:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars };
     store.save(); progressRender();
   };
 }
@@ -866,7 +1174,7 @@ $("themebtn").onclick = () => {
   // Migration v1 -> v2: PC.migrateProg (shared with the import handler above) bumps a
   // stored v1 progress object to v:2 and defaults the new showChars field; only persist
   // if migration actually changed something, to avoid a needless write on every boot.
-  if(prog.v !== 2 || prog.showChars === undefined){ prog = PC.migrateProg(prog); store.save(); }
+  if(prog.v !== 2 || prog.showChars === undefined || prog.s === undefined){ prog = PC.migrateProg(prog); store.save(); }
   applyTheme();
   render();
 })();

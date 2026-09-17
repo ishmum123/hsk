@@ -6,19 +6,25 @@ set -e
 cd "$(dirname "$0")"
 
 SRC=src/pinyin_app.html
-OUT=hsk_pinyin.html
-INDEX=index.html
+# OUT/INDEX can be overridden via env (e.g. OUT=/tmp/x.html INDEX=/tmp/y.html sh
+# build.sh) so tests/pinyin_checks.js's stale-build guard can rebuild to a scratch
+# location and diff it against the real shipped files, without ever overwriting
+# them itself as a side effect of just running the check suite.
+OUT="${OUT:-hsk_pinyin.html}"
+INDEX="${INDEX:-index.html}"
 VOCAB=data/hsk_vocab.js
 LESSONS=data/pinyin_lessons.js
+SENTENCES=data/hsk_sentences.js
 CORE=src/pinyin_core.js
 
-for f in "$SRC" "$VOCAB" "$LESSONS" "$CORE"; do
+for f in "$SRC" "$VOCAB" "$LESSONS" "$SENTENCES" "$CORE"; do
   if [ ! -f "$f" ]; then echo "build.sh: missing $f" >&2; exit 1; fi
 done
 
-awk -v vocab="$VOCAB" -v lessons="$LESSONS" -v core="$CORE" '
+awk -v vocab="$VOCAB" -v lessons="$LESSONS" -v sentences="$SENTENCES" -v core="$CORE" '
   /<script src="\.\.\/data\/hsk_vocab\.js"><\/script>/ { print "<script>"; while ((getline line < vocab) > 0) print line; close(vocab); print "</script>"; next }
   /<script src="\.\.\/data\/pinyin_lessons\.js"><\/script>/ { print "<script>"; while ((getline line < lessons) > 0) print line; close(lessons); print "</script>"; next }
+  /<script src="\.\.\/data\/hsk_sentences\.js"><\/script>/ { print "<script>"; while ((getline line < sentences) > 0) print line; close(sentences); print "</script>"; next }
   /<script src="pinyin_core\.js"><\/script>/ { print "<script>"; while ((getline line < core) > 0) print line; close(core); print "</script>"; next }
   { print }
 ' "$SRC" > "$OUT"

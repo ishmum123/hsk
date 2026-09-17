@@ -396,7 +396,20 @@ function validateProgShape(data){
   if(data.lessons !== undefined && (!data.lessons || typeof data.lessons !== "object" || Array.isArray(data.lessons))) return {ok:false, reason:"lessons must be an object"};
   if(data.sessions !== undefined && typeof data.sessions !== "number") return {ok:false, reason:"sessions must be a number"};
   if(data.showChars !== undefined && typeof data.showChars !== "boolean") return {ok:false, reason:"showChars must be a boolean"};
+  // dismissedSoundsHint is no longer written (the Today hints now hide by real state --
+  // placement taken / a lesson opened -- rather than a dismiss button), but an old
+  // export may still carry it, so it's accepted and simply ignored on import.
   if(data.dismissedSoundsHint !== undefined && typeof data.dismissedSoundsHint !== "boolean" && typeof data.dismissedSoundsHint !== "number") return {ok:false, reason:"dismissedSoundsHint must be a boolean or number"};
+  if(data.placedOnce !== undefined && typeof data.placedOnce !== "boolean" && typeof data.placedOnce !== "number") return {ok:false, reason:"placedOnce must be a boolean or number"};
+  if(data.soundsOpened !== undefined && typeof data.soundsOpened !== "boolean" && typeof data.soundsOpened !== "number") return {ok:false, reason:"soundsOpened must be a boolean or number"};
+  if(data.s !== undefined){
+    if(!data.s || typeof data.s !== "object" || Array.isArray(data.s)) return {ok:false, reason:"s must be an object"};
+    for(const k of Object.keys(data.s)){
+      const p = data.s[k];
+      if(!p || typeof p !== "object" || Array.isArray(p)) return {ok:false, reason:`s.${k} must be an object`};
+      for(const f of ["r","w","s"]) if(p[f] !== undefined && typeof p[f] !== "number") return {ok:false, reason:`s.${k}.${f} must be a number`};
+    }
+  }
   return {ok:true, data};
 }
 
@@ -406,15 +419,151 @@ function validateProgShape(data){
 // new `showChars` field (default false) differ. Shared by the app's import handler and
 // its boot-time migration so there is exactly one place that knows the v1->v2 shape.
 function migrateProg(data){
-  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false };
+  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{} };
   const merged = Object.assign({}, base, data||{}, {v:2});
   if(merged.showChars === undefined) merged.showChars = false;
+  if(merged.s === undefined) merged.s = {};
   return merged;
+}
+
+// ------------------------------------------------------------- sentences (Phase 2)
+// A sentence's `words` may be a VOCAB word directly, or a SENTENCE_EXTRA compound
+// (a transparent whitelisted compound like 你们/这个 that isn't its own VOCAB entry --
+// see data/hsk_sentences.js's header comment). Function words never get blanked in a
+// gapSentence item: they're too easy (context alone gives them away) and too central
+// to the sentence's grammar to work as a fair "guess the content word" test.
+const SENTENCE_FUNCTION_WORDS = ["的","了","吗","呢","是","我","你","他","她","我们","你们","他们","和","在","不","很","也","都"];
+
+// Reverse lookup: guesses a single tone (1-4, or 5 if none found) for a chunk of
+// already-marked pinyin text by scanning for a toned vowel, right to left, so a
+// word with a neutral-tone suffix (e.g. "nǐmen") still colours by its meaningful
+// syllable. Used only for SENTENCE_EXTRA tokens, which have no numbered form to
+// render through pyHTML (their pinyin isn't derivable by joining VOCAB entries) --
+// VOCAB words in a sentence are coloured per-syllable via pyHTML(entry.n) instead,
+// same as everywhere else.
+function guessTone(markedText){
+  const s = String(markedText);
+  for(let i=s.length-1;i>=0;i--){
+    const lower = s[i].toLowerCase();
+    const base = BASE_OF[lower];
+    if(base !== undefined){
+      for(let t=1;t<=4;t++){ if(TONE_CHARS[base][t] === lower) return t; }
+    }
+  }
+  return 5;
+}
+
+// Uppercases the first visible character of a "<span ...>text</span>" HTML
+// fragment (as pyHTML/guessTone-based rendering produces), regardless of whether
+// that character carries a tone diacritic (ā, ǚ, etc. are their own Unicode code
+// points and don't match a plain [a-z] class -- a bug this replaced matched the
+// wrong character, e.g. 阿姨's "āyí" rendering as "āYí" because a regex scanning
+// for the first [a-z] letter anywhere in the string, not anchored to the very
+// start, found the second syllable's "y" instead). Anchored to the string's
+// start, so it only ever touches the one character right after the opening tag.
+function capitalizeFirstSpan(html){
+  return String(html).replace(/^(<[^>]+>)([^<])/, (m, tag, c) => tag + c.toUpperCase());
+}
+
+// Splits a sentence's word-spaced `py` into per-word tokens aligned 1:1 with its
+// `words` array (guaranteed by tools/check_sentences.py's pinyin cross-check --
+// every word's own pinyin, space-joined, equals `py` exactly modulo case and
+// tone-sandhi). Returns null if the alignment doesn't hold (defensive: callers
+// should degrade to plain, uncoloured text rather than mis-render). Each token's
+// trailing sentence punctuation (, . ? !) is split off into `punct` so it can be
+// re-attached after the word's pinyin is coloured.
+function sentenceTokens(sentence){
+  const toks = String(sentence.py).split(" ");
+  const words = sentence.words || [];
+  if(toks.length !== words.length) return null;
+  return toks.map((tok, i) => {
+    const m = /^(.*?)([,.?!]*)$/.exec(tok);
+    return { word: words[i], core: m[1], punct: m[2], index: i };
+  });
+}
+
+// entry: {en,lv,words,...} (a SENTENCES entry); pool: SENTENCES array. Returns up
+// to 3 other sentences of the same level with a different English gloss, preferring
+// ones that share at least one word with the answer (a shared-word distractor is a
+// plausible near-miss; an unrelated sentence at the same level is the fallback).
+function sentenceOpts(sentence, pool){
+  const ansKey = String(sentence.en).trim().toLowerCase();
+  const wordSet = new Set(sentence.words || []);
+  const candidates = (pool || []).filter(s => s.zh !== sentence.zh && s.lv === sentence.lv && String(s.en).trim().toLowerCase() !== ansKey);
+  const sharing = shuffle(candidates.filter(s => (s.words||[]).some(w=>wordSet.has(w))));
+  const other = shuffle(candidates.filter(s => !(s.words||[]).some(w=>wordSet.has(w))));
+  const chosen = []; const seenEn = new Set([ansKey]);
+  function addFrom(list){
+    list.forEach(s=>{
+      if(chosen.length>=3) return;
+      const key = String(s.en).trim().toLowerCase();
+      if(seenEn.has(key)) return;
+      seenEn.add(key); chosen.push(s);
+    });
+  }
+  addFrom(sharing); addFrom(other);
+  if(chosen.length<3){
+    // Small-pool fallback (a level with very few sentences): widen past the
+    // same-level restriction rather than shipping fewer than 3 options.
+    addFrom(shuffle((pool||[]).filter(s=>s.zh!==sentence.zh && !seenEn.has(String(s.en).trim().toLowerCase()))));
+  }
+  return chosen.slice(0,3);
+}
+
+// sentence: a SENTENCES entry; vocabPool: VOCAB array. Returns the indices into
+// sentence.words that are legal gapSentence blanks: a VOCAB word (not a
+// SENTENCE_EXTRA compound -- those have no numbered pinyin for gapOpts to match
+// against), at the sentence's own level (testing content actually at that
+// difficulty, not an easier word incidentally present), not a function word, and
+// not a word that recurs elsewhere in the same sentence -- blanking one
+// occurrence of a repeated word would still leave the answer sitting in plain
+// sight at its other occurrence(s).
+function gapCandidateIndices(sentence, vocabPool){
+  const byW = {}; (vocabPool||[]).forEach(v=>{ byW[v.w] = v; });
+  const words = sentence.words || [];
+  const counts = {}; words.forEach(w=>{ counts[w] = (counts[w]||0) + 1; });
+  const out = [];
+  words.forEach((w,i)=>{
+    if(SENTENCE_FUNCTION_WORDS.indexOf(w) >= 0) return;
+    if(counts[w] > 1) return;
+    const entry = byW[w];
+    if(entry && entry.lv === sentence.lv) out.push(i);
+  });
+  return out;
+}
+
+// entry: a VOCAB entry (the blanked word); pool: VOCAB array. Returns up to 3 other
+// VOCAB words at the SAME level and syllable count as entry -- a strict same-level
+// match (not "prefer", unlike pinyinOpts elsewhere), since a gapSentence item is
+// testing content pitched at exactly the sentence's own difficulty.
+function gapOpts(entry, pool){
+  const n = syll(entry.n).length;
+  const seen = new Set([pipeline(entry.n)]);
+  const chosen = [];
+  function addFrom(list){
+    list.forEach(v=>{
+      if(chosen.length>=3) return;
+      const key = pipeline(v.n);
+      if(seen.has(key)) return;
+      seen.add(key); chosen.push(v);
+    });
+  }
+  addFrom(shuffle((pool||[]).filter(v=>v.w!==entry.w && v.lv===entry.lv && syll(v.n).length===n)));
+  if(chosen.length<3){
+    // Fallback for a sparse (level, syllable-count) pool: same syllable count at
+    // any level, then same level at any syllable count.
+    addFrom(shuffle((pool||[]).filter(v=>v.w!==entry.w && syll(v.n).length===n)));
+  }
+  if(chosen.length<3){
+    addFrom(shuffle((pool||[]).filter(v=>v.w!==entry.w && v.lv===entry.lv)));
+  }
+  return chosen.slice(0,3);
 }
 
 // ------------------------------------------------------------------- export
 const API = { syll, mark, tones, strip, pyHTML, normType, acceptTypeAnswer, distractors, strata,
   placementStopIndex, validateProgShape, migrateProg, meaningOpts, pinyinOpts, firstTwoWords, gloss, escapeHtml,
+  SENTENCE_FUNCTION_WORDS, guessTone, sentenceTokens, sentenceOpts, gapCandidateIndices, gapOpts, capitalizeFirstSpan,
   VALID_SYLLABLES, INITIAL_FINALS, splitSyllable, pipeline, numberedCandidates, markSyllable };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.PinyinCore = API;

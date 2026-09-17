@@ -27,11 +27,53 @@ if(fs.existsSync(lessonsFile)){
   console.log("LESSONS file not found in data/ — skipping lesson-shape checks (using stub in app dev only).");
 }
 
+const sentencesFile = path.join(ROOT, "data", "hsk_sentences.js");
+let SENTENCES = null, SENTENCE_EXTRA = null;
+if(fs.existsSync(sentencesFile)){
+  SENTENCES = loadConst(sentencesFile, "SENTENCES");
+  SENTENCE_EXTRA = loadConst(sentencesFile, "SENTENCE_EXTRA");
+  console.log(`Loaded SENTENCES: ${SENTENCES.length} sentences, ${Object.keys(SENTENCE_EXTRA).length} EXTRA compounds from ${path.relative(ROOT, sentencesFile)}`);
+} else {
+  console.log("SENTENCES file not found in data/ — skipping Phase 2 sentence checks.");
+}
+
 let fails = 0;
 function check(name, cond){
   if(cond){ console.log(`PASS  ${name}`); }
   else { console.log(`FAIL  ${name}`); fails++; }
 }
+
+// ---------------------------------------------------------------- check 0
+(function(){
+  // Stale-build guard: every other check here runs against the real data/core
+  // files directly, never against the shipped hsk_pinyin.html/index.html bundle
+  // -- so a suite pass has previously coexisted with a stale bundle (an edit made
+  // without a `sh build.sh` afterward). Rebuild to a scratch location via the
+  // real build.sh (its OUT/INDEX are env-overridable for exactly this) and diff
+  // byte-for-byte against what's actually shipped, so a stale bundle can never
+  // pass the suite even if every other check does.
+  const cp = require("child_process");
+  const os = require("os");
+  const tmpOut = path.join(os.tmpdir(), `hsk_pinyin_stalecheck_${process.pid}.html`);
+  const tmpIndex = path.join(os.tmpdir(), `hsk_pinyin_stalecheck_index_${process.pid}.html`);
+  try{
+    cp.execSync("sh build.sh", { cwd: ROOT, env: Object.assign({}, process.env, { OUT: tmpOut, INDEX: tmpIndex }), stdio: "pipe" });
+    const built = fs.readFileSync(tmpOut, "utf8");
+    const shippedMainPath = path.join(ROOT, "hsk_pinyin.html");
+    const shippedIndexPath = path.join(ROOT, "index.html");
+    const shippedMain = fs.existsSync(shippedMainPath) ? fs.readFileSync(shippedMainPath, "utf8") : null;
+    const shippedIndex = fs.existsSync(shippedIndexPath) ? fs.readFileSync(shippedIndexPath, "utf8") : null;
+    console.log(`\n[0] stale-build guard: fresh build ${built.length} bytes; shipped hsk_pinyin.html ${shippedMain===null?"MISSING":shippedMain.length+" bytes"}, index.html ${shippedIndex===null?"MISSING":shippedIndex.length+" bytes"}`);
+    check("hsk_pinyin.html matches a fresh build.sh output (not stale)", built === shippedMain);
+    check("index.html matches a fresh build.sh output (not stale)", built === shippedIndex);
+  } catch(e){
+    console.log(`\n[0] stale-build guard: build.sh failed to run: ${e.message}`);
+    check("build.sh runs cleanly for the stale-build guard", false);
+  } finally {
+    try{ fs.unlinkSync(tmpOut); }catch(e){}
+    try{ fs.unlinkSync(tmpIndex); }catch(e){}
+  }
+})();
 
 // ---------------------------------------------------------------- check 1
 (function(){
@@ -302,6 +344,261 @@ function check(name, cond){
       typeof m.sets==="object" && typeof m.lessons==="object" && typeof m.sessions==="number";
   }
 })();
+
+// --------------------------------------------------------------- check 12
+(function(){
+  // Data category guard: an `en` gloss must never embed a raw Chinese character (10
+  // real words did, e.g. 你's "you (informal, as opposed to courteous 您)", leaking
+  // characters past the "show characters" toggle since the app only ever gated `w`),
+  // and sanitizing that away must never leave a dangling cross-reference lead-in
+  // (呀's "particle equivalent to after a vowel…" before the mid-clause excision fix).
+  // tools/build_vocab.py's sanitize_gloss fixes both at the source; this checks the
+  // shipped data directly, and PC.gloss() is the render-time guard checked alongside it.
+  const leaked = VOCAB.filter(v => /[一-鿿]/.test(v.en));
+  console.log(`\n[12a] VOCAB en fields containing a Chinese character: ${leaked.length} (should be 0)`);
+  leaked.slice(0,10).forEach(v=>console.log(`    ${v.w}\t${JSON.stringify(v.en)}`));
+  check("no VOCAB en contains a Chinese character", leaked.length === 0);
+
+  // A lead-in word (equivalent/opposite/abbr/written/"same as"/variant) immediately
+  // before a clause boundary means sanitize_gloss stripped the Chinese word it
+  // pointed to but left the lead-in dangling. Two real glosses are legitimate,
+  // CJK-free hits on this heuristic -- "opposite" IS the actual English meaning,
+  // not a leftover cross-reference lead-in -- and are excluded by an explicit
+  // allowlist (hand-verified to contain no Chinese character, see the Deviations doc).
+  const DANGLING_LEADIN_RE = /(?:equivalent|opposite|abbr|written|same as|variant)\s*(?:to|of|for|:)?\s*(?:[,;)]|$)/i;
+  const DANGLING_ALLOWLIST = new Set(["对面", "相反"]);
+  const dangling = VOCAB.filter(v => DANGLING_LEADIN_RE.test(v.en) && !DANGLING_ALLOWLIST.has(v.w));
+  console.log(`\n[12b] VOCAB en fields with a dangling cross-reference lead-in: ${dangling.length} (should be 0; ${DANGLING_ALLOWLIST.size} allowlisted)`);
+  dangling.slice(0,10).forEach(v=>console.log(`    ${v.w}\t${JSON.stringify(v.en)}`));
+  check("no VOCAB en has a dangling cross-reference lead-in (outside the allowlist)", dangling.length === 0);
+
+  const withCjk = { en: "you (informal, as opposed to courteous 您)" };
+  const cleaned = PC.gloss(withCjk);
+  console.log(`    PC.gloss() guard: ${JSON.stringify(withCjk.en)} -> ${JSON.stringify(cleaned)}`);
+  check("PC.gloss() strips a Chinese character from en", !/[一-鿿]/.test(cleaned) && cleaned.length > 0);
+  check("PC.gloss() is a no-op on an already-clean en", PC.gloss({en:"you (informal)"}) === "you (informal)");
+})();
+
+if(SENTENCES){
+  const VOCAB_BY_W = {}; VOCAB.forEach(v=>{ VOCAB_BY_W[v.w] = v; });
+
+  // --------------------------------------------------------------- check 13
+  (function(){
+    // Every word in every sentence's `words` must resolve: either directly to a
+    // VOCAB entry, or to a SENTENCE_EXTRA compound whose `base` is itself a VOCAB
+    // entry (data/hsk_sentences.js's own contract; tools/check_sentences.py already
+    // enforces this at data-generation time -- this re-checks the shipped data the
+    // app actually loads, the same "trust but verify" as VOCAB's other checks).
+    let bad = 0; const badExamples = [];
+    SENTENCES.forEach(s=>{
+      (s.words||[]).forEach(w=>{
+        const direct = VOCAB_BY_W[w];
+        const extra = SENTENCE_EXTRA[w];
+        const ok = !!direct || (!!extra && !!VOCAB_BY_W[extra.base]);
+        if(!ok){ bad++; if(badExamples.length<10) badExamples.push({zh:s.zh, word:w}); }
+      });
+    });
+    console.log(`\n[13] every sentence word resolves (VOCAB or EXTRA-with-VOCAB-base): ${bad} unresolved (should be 0)`);
+    badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("every SENTENCES word token resolves to VOCAB or a valid EXTRA compound", bad === 0);
+  })();
+
+  // --------------------------------------------------------------- check 14
+  (function(){
+    // sentenceOpts: the hear/read sentence meaning-distractor picker. Full corpus
+    // (882 sentences, not a sample -- cheap enough): exactly 3 options, all real
+    // SENTENCES entries, none equal to the answer's English gloss.
+    let bad = 0; const badExamples = [];
+    let sameLevelCount = 0, sharedWordCount = 0, totalOpts = 0;
+    SENTENCES.forEach(sentence=>{
+      const ds = PC.sentenceOpts(sentence, SENTENCES);
+      const ansKey = String(sentence.en).trim().toLowerCase();
+      const wordSet = new Set(sentence.words||[]);
+      const ok = ds.length===3 &&
+        ds.every(d=>SENTENCES.includes(d)) &&
+        ds.every(d=>d.zh!==sentence.zh) &&
+        ds.every(d=>String(d.en).trim().toLowerCase()!==ansKey) &&
+        new Set(ds.map(d=>d.zh)).size===3;
+      if(!ok){ bad++; if(badExamples.length<10) badExamples.push({zh:sentence.zh, ds:ds.map(d=>d.en)}); }
+      ds.forEach(d=>{
+        totalOpts++;
+        if(d.lv===sentence.lv) sameLevelCount++;
+        if((d.words||[]).some(w=>wordSet.has(w))) sharedWordCount++;
+      });
+    });
+    console.log(`\n[14] sentenceOpts over all ${SENTENCES.length} sentences: ${SENTENCES.length-bad} clean, ${bad} bad`);
+    console.log(`    same-level ratio: ${totalOpts ? (sameLevelCount/totalOpts).toFixed(2) : "n/a"} (${sameLevelCount}/${totalOpts})`);
+    console.log(`    shared-word ratio: ${totalOpts ? (sharedWordCount/totalOpts).toFixed(2) : "n/a"} (${sharedWordCount}/${totalOpts}) -- informational only (no threshold asserted): "shares a word" counts function words too (的/我/你/...), so most short sentences share at least one with most others -- this ratio mainly confirms the shared-word tier is actually being exercised, not that distractors are topically close`);
+    badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("sentenceOpts valid for every sentence (0 bad)", bad === 0);
+    // Same-level is a hard filter in sentenceOpts (not just a preference, unlike
+    // shared-word), so it should be at/near 100% across the corpus -- the only way
+    // it drops is the documented small-pool fallback widening past level.
+    check("sentenceOpts same-level ratio is high (>=0.9, the hard-filter case dominates)", totalOpts===0 || (sameLevelCount/totalOpts) >= 0.9);
+  })();
+
+  // --------------------------------------------------------------- check 15
+  (function(){
+    // gapCandidateIndices must never offer a function word as a blank -- checked
+    // against the exact list the spec names, which must match PC.SENTENCE_FUNCTION_WORDS.
+    const SPEC_FUNCTION_WORDS = ["的","了","吗","呢","是","我","你","他","她","我们","你们","他们","和","在","不","很","也","都"];
+    const listsMatch = JSON.stringify([...PC.SENTENCE_FUNCTION_WORDS].sort()) === JSON.stringify([...SPEC_FUNCTION_WORDS].sort());
+    check("PC.SENTENCE_FUNCTION_WORDS matches the spec's function-word list", listsMatch);
+
+    let bad = 0; const badExamples = [];
+    SENTENCES.forEach(sentence=>{
+      const idxs = PC.gapCandidateIndices(sentence, VOCAB);
+      idxs.forEach(i=>{
+        const w = sentence.words[i];
+        if(PC.SENTENCE_FUNCTION_WORDS.indexOf(w) >= 0){ bad++; if(badExamples.length<10) badExamples.push({zh:sentence.zh, word:w}); }
+      });
+    });
+    console.log(`\n[15] gapCandidateIndices never offers a function word: ${bad} violations (should be 0)`);
+    badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("no gap candidate is a function word", bad === 0);
+
+    // A candidate must also not be a word that recurs elsewhere in the same
+    // sentence: blanking one occurrence would still leave the answer sitting in
+    // plain sight at its other occurrence(s) (category fix from browser review).
+    let dupBad = 0; const dupExamples = [];
+    SENTENCES.forEach(sentence=>{
+      const words = sentence.words||[];
+      const counts = {}; words.forEach(w=>{ counts[w] = (counts[w]||0)+1; });
+      PC.gapCandidateIndices(sentence, VOCAB).forEach(i=>{
+        const w = words[i];
+        if(counts[w] > 1){ dupBad++; if(dupExamples.length<10) dupExamples.push({zh:sentence.zh, word:w, count:counts[w]}); }
+      });
+    });
+    console.log(`\n[15b] gapCandidateIndices never offers a word that recurs in the same sentence: ${dupBad} violations (should be 0)`);
+    dupExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("no gap candidate is a repeated word within its own sentence", dupBad === 0);
+
+    // Synthetic regression case: 喜欢 ("to like", HSK1, not a function word) repeats
+    // twice in the same sentence -- both its indices must be excluded, even though
+    // each individually (level match, not a function word) would otherwise be a
+    // legal candidate. 你/我/也 are function words anyway (excluded by the other
+    // rule), so this specifically exercises the new duplicate-word rule.
+    const dupSentence = { zh:"我喜欢你，你也喜欢我。", py:"wǒ xǐhuan nǐ, nǐ yě xǐhuan wǒ.", en:"I like you, you like me too.", lv:1,
+      words:["我","喜欢","你","你","也","喜欢","我"] };
+    const dupIdxs = PC.gapCandidateIndices(dupSentence, VOCAB);
+    const dupWords = dupIdxs.map(i=>dupSentence.words[i]);
+    console.log(`\n[15c] synthetic duplicate-word sentence: candidate indices ${JSON.stringify(dupIdxs)} -> words ${JSON.stringify(dupWords)}`);
+    check("synthetic case: a duplicated content word (喜欢) is excluded as a gap candidate", dupWords.indexOf("喜欢")<0);
+  })();
+
+  // --------------------------------------------------------------- check 16
+  (function(){
+    // gapOpts: for every sentence's eligible gap candidates, 3 options, all real
+    // VOCAB entries, same syllable count as the blanked word, never the answer.
+    let bad = 0; const badExamples = [], sampled = [];
+    SENTENCES.forEach(sentence=>{
+      PC.gapCandidateIndices(sentence, VOCAB).forEach(i=>{
+        const entry = VOCAB_BY_W[sentence.words[i]];
+        sampled.push(entry);
+      });
+    });
+    sampled.forEach(entry=>{
+      const ds = PC.gapOpts(entry, VOCAB);
+      const n = PC.syll(entry.n).length;
+      // Same corpus quirk as pinyinOpts' check 10: gapOpts widens past an exact
+      // syllable-count (and eventually level) match when that pool is too small --
+      // the whole HSK 1-4 corpus has only one 4-syllable word ("公共汽车") -- so
+      // only require an exact match when the corpus actually has 3+ same-level,
+      // same-count peers.
+      const exactPoolSize = VOCAB.filter(v=>v.w!==entry.w && v.lv===entry.lv && PC.syll(v.n).length===n).length;
+      const ok = ds.length===3 &&
+        ds.every(d=>VOCAB.includes(d)) &&
+        ds.every(d=>d.n!==entry.n) &&
+        (exactPoolSize<3 || ds.every(d=>PC.syll(d.n).length===n)) &&
+        new Set(ds.map(d=>d.n)).size===3;
+      if(!ok){ bad++; if(badExamples.length<10) badExamples.push({entry:entry.n, ds:ds.map(d=>d.n)}); }
+    });
+    console.log(`\n[16] gapOpts over ${sampled.length} gap candidates (every sentence's eligible blanks): ${sampled.length-bad} clean, ${bad} bad`);
+    badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("gapOpts valid for every real gap candidate (0 bad)", bad === 0);
+  })();
+
+  // --------------------------------------------------------------- check 17
+  (function(){
+    // sentenceTokens: the py<->words alignment every rendering helper depends on
+    // must hold for the whole shipped corpus (already spot-checked during
+    // development; this is the permanent regression guard).
+    let bad = 0; const badExamples = [];
+    SENTENCES.forEach(s=>{
+      const toks = PC.sentenceTokens(s);
+      if(!toks || toks.length !== (s.words||[]).length){ bad++; if(badExamples.length<10) badExamples.push(s.zh); }
+    });
+    console.log(`\n[17] sentenceTokens py<->words alignment over all ${SENTENCES.length} sentences: ${bad} misaligned (should be 0)`);
+    badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("sentenceTokens aligns 1:1 with words for every sentence", bad === 0);
+  })();
+
+  // --------------------------------------------------------------- check 18
+  (function(){
+    // Regression guard for the capitalization bug found in browser review: the
+    // app's sentencePyHTML capitalizes only the first sentence's first rendered
+    // character via PC.capitalizeFirstSpan, anchored to the very start of the
+    // HTML fragment (not a scan for the first ASCII letter anywhere in it, which
+    // is what let 阿姨's "āyí" render as "āYí" -- the old regex skipped over the
+    // un-matched tone-marked "ā" and capitalized the next span's "y" instead).
+    // This mirrors the app's real render pipeline (PC.sentenceTokens + pyHTML/
+    // guessTone + capitalizeFirstSpan) in plain Node, strips the HTML tags, and
+    // checks the result equals the sentence's own stored `py` with its first
+    // character uppercased -- over the full shipped corpus, not just 阿姨.
+    function renderPlainText(sentence){
+      const toks = PC.sentenceTokens(sentence);
+      if(!toks) return null;
+      const html = toks.map(t=>{
+        const entry = VOCAB_BY_W[t.word];
+        let inner = entry ? PC.pyHTML(entry.n) : `<span class="t${PC.guessTone(t.core)}">${t.core}</span>`;
+        if(t.index === 0) inner = PC.capitalizeFirstSpan(inner);
+        return `<span>${inner}</span>${t.punct}`;
+      }).join(" ");
+      return html.replace(/<[^>]+>/g, "");
+    }
+    let bad = 0; const badExamples = [];
+    SENTENCES.forEach(s=>{
+      const rendered = renderPlainText(s);
+      const expected = s.py.charAt(0).toUpperCase() + s.py.slice(1);
+      if(rendered !== expected){ bad++; if(badExamples.length<10) badExamples.push({zh:s.zh, py:s.py, rendered, expected}); }
+    });
+    console.log(`\n[18] sentence pinyin render (stripped of tags) matches data py, first letter capitalized: ${SENTENCES.length-bad} clean, ${bad} bad`);
+    badExamples.forEach(b=>console.log("    ", JSON.stringify(b)));
+    check("rendered sentence pinyin text equals stored py (capitalization-correct) for every sentence", bad === 0);
+
+    // The specific reported regression: 阿姨 (āyí) must render "Āyí", not "āYí".
+    const ayi = SENTENCES.find(s => (s.words||[])[0] === "阿姨");
+    if(ayi){
+      const rendered = renderPlainText(ayi);
+      console.log(`    阿姨 regression case: ${JSON.stringify(ayi.py)} -> ${JSON.stringify(rendered)}`);
+      check("阿姨-leading sentence capitalizes the first syllable, not the second", rendered.startsWith("Ā"));
+    }
+  })();
+
+  // --------------------------------------------------------------- check 19
+  (function(){
+    // guessTone: reverse tone lookup used to colour a whole SENTENCE_EXTRA token
+    // by its last toned syllable, right-to-left, so a neutral-tone suffix (the
+    // common case: "-men", "-li", "-ge") doesn't win over the word's real tone.
+    const cases = [
+      ["nǐmen", 3],   // 你们: nǐ (t3) + neutral "men" -> scan right-to-left lands on ǐ
+      ["tāmen", 1],   // 他们/她们: tā (t1) + neutral "men"
+      ["chūntiān", 1],// 春天: chun1 tian1 -- last syllable's own tone (ā, t1)
+      ["zhège", 4],   // 这个: zhè (t4) + neutral "ge"
+      ["nàlǐ", 3],    // 那里: nà (t4) then lǐ (t3) -- rightmost toned vowel wins
+      ["bu", 5],      // no tone mark anywhere -> falls through to neutral (5)
+    ];
+    let bad = 0;
+    cases.forEach(([input, expected])=>{
+      const got = PC.guessTone(input);
+      const ok = got === expected;
+      if(!ok) bad++;
+      console.log(`    ${ok?"ok ":"BAD"} guessTone(${JSON.stringify(input)}) = ${got} (expected ${expected})`);
+    });
+    console.log(`\n[19] guessTone unit cases: ${cases.length-bad} / ${cases.length} correct`);
+    check("guessTone matches expected tone for every case (including SENTENCE_EXTRA-shaped compounds)", bad === 0);
+  })();
+}
 
 console.log(`\n${fails===0?"ALL CHECKS PASSED":"FAILURES: "+fails}`);
 process.exit(fails===0?0:1);
