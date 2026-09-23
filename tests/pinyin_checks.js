@@ -871,5 +871,29 @@ const recAll = levels => { const c = {}; VOCAB.filter(v=>levels.includes(v.lv)).
   check("showCharChoice: shown iff unseen, order not switched, HSK 1-3 done, HSK 4 not done, 字 1-3 incomplete -- regardless of records", bad === 0);
 })();
 
+// --------------------------------------------------------------- check 32
+(function(){
+  // Reversible learning-order switch (Phase 3c): flipping prog.charsAfterHsk4 on the
+  // same prog object must recompute stagePath()/nextStage() from the flag alone and
+  // must not touch prog.c/prog.w/sets -- records untouched, deep-equal before/after.
+  const N = NSETS; const done3 = {1:N[1],2:N[2],3:N[3],4:0};
+  const p = {sets: Object.assign({}, done3), c: {"你":{r:2,w:1,s:2}}, w: {"好":{r:3,w:0,s:3}}, charsAfterHsk4: false};
+  const before = JSON.parse(JSON.stringify(p));
+  const pathBefore = PC.stagePath(p, N, VOCAB);
+  const stageBefore = PC.nextStage(p, N, VOCAB);
+  p.charsAfterHsk4 = true;
+  const pathAfter = PC.stagePath(p, N, VOCAB);
+  const stageAfter = PC.nextStage(p, N, VOCAB);
+  p.charsAfterHsk4 = false;
+  const pathBack = PC.stagePath(p, N, VOCAB);
+  const stageBack = PC.nextStage(p, N, VOCAB);
+  const recordsUntouched = util.isDeepStrictEqual(p.c, before.c) && util.isDeepStrictEqual(p.w, before.w) && util.isDeepStrictEqual(p.sets, before.sets);
+  const flippedOrder = pathBefore.map(s=>s.key||s.lv).join(",") !== pathAfter.map(s=>s.key||s.lv).join(",")
+    && (stageBefore ? stageBefore.kind : null) !== (stageAfter ? stageAfter.kind : null);
+  const roundTrips = util.isDeepStrictEqual(pathBefore, pathBack) && util.isDeepStrictEqual(stageBefore, stageBack);
+  console.log(`\n[32] charsAfterHsk4 flip: records untouched=${recordsUntouched}, order flips=${flippedOrder}, round-trips back=${roundTrips}`);
+  check("flipping charsAfterHsk4 on the same prog recomputes stagePath/nextStage and leaves prog.c/prog.w/sets untouched", recordsUntouched && flippedOrder && roundTrips);
+})();
+
 console.log(`\n${fails===0?"ALL CHECKS PASSED":"FAILURES: "+fails}`);
 process.exit(fails===0?0:1);

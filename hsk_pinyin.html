@@ -1559,6 +1559,10 @@ function nextStage(){ return PC.nextStage(prog, allNSets(), VOCAB); }
 // character stage. Before that nothing character-related renders outside the path
 // strip (besides the existing showChars toggle).
 function charsUnlocked(){ return PC.charsStarted(prog, allNSets(), VOCAB); }
+// HSK 1-3 all taught by sound (same gate PC.showCharChoice/PC.charsUnlocked use) --
+// the point the learning-order control becomes available in Progress, independent
+// of whether characters have actually started.
+function hsk123Done(){ return PC.charsUnlocked(prog.sets, allNSets()); }
 // "1–3" / "4" / "1–4" for a character stage's level range.
 function levelRange(levels){ return levels.length > 1 ? `${levels[0]}–${levels[levels.length-1]}` : String(levels[0]); }
 function markChar(w, ok){
@@ -2087,7 +2091,7 @@ function todayRender(){
   const showSoundsHint = !prog.soundsOpened;
   P.innerHTML = `<div class="drill-body">${pathStrip()}
     ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
-    ${showChoice ? `<div class="stmt" id="charChoice">Characters next — recognise the words you already know. Or skip to HSK 4 and do characters after.<button class="next" id="choiceStart" style="margin-top:8px">Start characters</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to HSK 4</button></div>` : ""}
+    ${showChoice ? `<div class="stmt" id="charChoice">Characters next — recognise the words you already know. Or skip to HSK 4 and do characters after. You can change this later in Progress.<button class="next" id="choiceStart" style="margin-top:8px">Start characters</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to HSK 4</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">New to pinyin? A quick lesson explains how it's spelled and sounds.<button class="next" id="hintSounds" style="margin-top:8px">Learn how to read it</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
@@ -2566,6 +2570,8 @@ function progressRender(){
       <tr><td>Sounds</td><td>${Object.keys(prog.lessons).length} / ${LESSONS.length} lessons done</td></tr>
       <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
     <div class="row" style="margin-top:14px"><button class="chip ${prog.showChars?'on':''}" id="toggleChars">Show characters</button>${unlocked ? `<button class="chip ${prog.mixChars!==false?'on':''}" id="toggleMix">Mix known characters into sentences</button>` : ""}</div>
+    ${hsk123Done() ? `<div class="row" style="margin-top:14px"><button class="chip ${prog.charsAfterHsk4?'':'on'}" id="ordChars">Characters before HSK 4</button><button class="chip ${prog.charsAfterHsk4?'on':''}" id="ordHsk4">HSK 4 before characters</button></div>
+    <p class="q" style="margin-top:6px">Changes what step 2 teaches next. Nothing you've learned is lost.</p>` : ""}
     <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
     ${weak.map(w=>`<div class="rowset">${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span></div>`).join("")}
     <div class="row" style="margin-top:16px">
@@ -2581,6 +2587,13 @@ function progressRender(){
     <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
   $("toggleChars").onclick = () => { prog.showChars = !prog.showChars; store.save(); progressRender(); };
   if(unlocked) $("toggleMix").onclick = () => { prog.mixChars = prog.mixChars === false; store.save(); progressRender(); };
+  // Reversible learning-order switch (Phase 3c): flips prog.charsAfterHsk4 only --
+  // stagePath()/nextStage() recompute the path from the flag, touching neither
+  // prog.c/prog.w nor prog.sets, so nothing learned is lost either direction.
+  if(hsk123Done()){
+    $("ordChars").onclick = () => { prog.charsAfterHsk4 = false; store.save(); progressRender(); };
+    $("ordHsk4").onclick = () => { prog.charsAfterHsk4 = true; store.save(); progressRender(); };
+  }
   $("exp").onclick = () => {
     const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
     const url = URL.createObjectURL(blob);
