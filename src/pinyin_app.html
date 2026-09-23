@@ -109,7 +109,7 @@
   .wl .zh{font-size:24px;font-family:var(--zh);flex:0 0 auto;width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .wl .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .wl .py{font-size:17px;display:block}
-  .wl .en{color:var(--mute);font-size:14px;text-align:left;display:block}
+  .wl .en{color:var(--mute);font-size:14px;text-align:left;display:block;margin:0}
   table.stats{width:100%;border-collapse:collapse;font-size:15px}
   table.stats td{padding:8px 0;border-bottom:1px solid var(--line)}
   table.stats td:last-child{text-align:right;font-variant-numeric:tabular-nums}
@@ -124,10 +124,11 @@
   .card-teach{margin-bottom:14px}
   .card-teach h3{font-size:17px;margin:0 0 8px;font-weight:600}
   .card-teach p{font-size:15px;color:var(--mute);margin:0 0 10px}
-  .rowset{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);gap:10px}
+  .rowset{display:flex;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line);gap:10px}
+  .rowset.ex{flex-wrap:wrap}
   .rowset .zh{font-family:var(--zh);font-size:18px;flex:0 0 auto;width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .rowset .py{flex:1;min-width:0}
-  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:0 1 auto;min-width:0}
+  .rowset .py{flex:0 1 auto;min-width:0}
+  .rowset .en{color:var(--mute);font-size:14px;text-align:right;flex:1 1 0;min-width:0;overflow-wrap:anywhere;margin:0}
   .taplist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
   .taplist button{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font-size:15px;min-height:48px}
   .plist button{display:flex;justify-content:space-between;width:100%;text-align:left;padding:13px 4px;border:none;border-bottom:1px solid var(--line);background:transparent;font-size:16px;color:var(--ink);min-height:48px;align-items:center}
@@ -643,7 +644,7 @@ function sentenceRevealBlock(sentence){
 function exampleSentencesHTML(entry){
   const examples = wordExampleSentences(entry.w, 2);
   if(!examples.length) return "";
-  const rows = examples.map(s => `<div class="rowset" data-sent="${sentenceIndexOf(s)}" style="cursor:pointer"><span class="py" style="flex:1">${sentencePyHTML(s)}</span></div><div class="en" style="margin:-6px 0 8px">${escapeHtml(s.en)}${sentCharSpanBlock(s)}</div>`).join("");
+  const rows = examples.map(s => `<div class="rowset ex" data-sent="${sentenceIndexOf(s)}" style="cursor:pointer"><span class="py" style="flex:1">${sentencePyHTML(s)}</span><div class="en ex-en" style="flex:0 0 100%;text-align:left;margin-top:2px">${escapeHtml(s.en)}${sentCharSpanBlock(s)}</div></div>`).join("");
   return `<p class="q" style="margin-top:12px">Example${examples.length>1?"s":""}:</p>${rows}`;
 }
 
