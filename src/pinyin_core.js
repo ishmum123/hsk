@@ -402,14 +402,19 @@ function validateProgShape(data){
   if(data.dismissedSoundsHint !== undefined && typeof data.dismissedSoundsHint !== "boolean" && typeof data.dismissedSoundsHint !== "number") return {ok:false, reason:"dismissedSoundsHint must be a boolean or number"};
   if(data.placedOnce !== undefined && typeof data.placedOnce !== "boolean" && typeof data.placedOnce !== "number") return {ok:false, reason:"placedOnce must be a boolean or number"};
   if(data.soundsOpened !== undefined && typeof data.soundsOpened !== "boolean" && typeof data.soundsOpened !== "number") return {ok:false, reason:"soundsOpened must be a boolean or number"};
-  if(data.s !== undefined){
-    if(!data.s || typeof data.s !== "object" || Array.isArray(data.s)) return {ok:false, reason:"s must be an object"};
-    for(const k of Object.keys(data.s)){
-      const p = data.s[k];
-      if(!p || typeof p !== "object" || Array.isArray(p)) return {ok:false, reason:`s.${k} must be an object`};
-      for(const f of ["r","w","s"]) if(p[f] !== undefined && typeof p[f] !== "number") return {ok:false, reason:`s.${k}.${f} must be a number`};
+  // s (sentence progress, Phase 2) and c (character progress, Phase 3) share one
+  // record shape: {r,w,s} numbers, keyed by sentence zh / VOCAB w respectively.
+  for(const bucket of ["s","c"]){
+    const m = data[bucket];
+    if(m === undefined) continue;
+    if(!m || typeof m !== "object" || Array.isArray(m)) return {ok:false, reason:`${bucket} must be an object`};
+    for(const k of Object.keys(m)){
+      const p = m[k];
+      if(!p || typeof p !== "object" || Array.isArray(p)) return {ok:false, reason:`${bucket}.${k} must be an object`};
+      for(const f of ["r","w","s"]) if(p[f] !== undefined && typeof p[f] !== "number") return {ok:false, reason:`${bucket}.${k}.${f} must be a number`};
     }
   }
+  if(data.mixChars !== undefined && typeof data.mixChars !== "boolean") return {ok:false, reason:"mixChars must be a boolean"};
   return {ok:true, data};
 }
 
@@ -418,11 +423,17 @@ function validateProgShape(data){
 // progress object. Word/set/lesson data is unchanged between versions — only `v` and the
 // new `showChars` field (default false) differ. Shared by the app's import handler and
 // its boot-time migration so there is exactly one place that knows the v1->v2 shape.
+// Phase 3 adds two more defaulted fields, still under v:2 (the change is purely
+// additive): `c` (character progress, {}) and `mixChars` (mix known characters into
+// sentence rendering, true). Every field already present in `data` is carried over
+// untouched -- only missing fields are filled.
 function migrateProg(data){
-  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{} };
+  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{}, c:{}, mixChars:true };
   const merged = Object.assign({}, base, data||{}, {v:2});
   if(merged.showChars === undefined) merged.showChars = false;
   if(merged.s === undefined) merged.s = {};
+  if(merged.c === undefined) merged.c = {};
+  if(merged.mixChars === undefined) merged.mixChars = true;
   return merged;
 }
 
@@ -560,10 +571,77 @@ function gapOpts(entry, pool){
   return chosen.slice(0,3);
 }
 
+// ------------------------------------------------------------- characters (Phase 3)
+// Character recognition of words already known by sound. Progress lives in
+// prog.c[w] = {r,w,s} (same shape as prog.s). Thresholds on the streak `s`:
+const CHAR_MASTERED = 3; // "mastered" for Progress / path strip; ruby tier in sentences
+const CHAR_BARE = 6;     // characters alone (no pinyin) in mixed sentences
+
+// Gate: all of HSK 1-3 taught. sets = prog.sets; nsets = {1:n1, 2:n2, 3:n3} (total
+// set counts per level, passed in so core stays data-free).
+function charsUnlocked(sets, nsets){
+  sets = sets || {};
+  return [1,2,3].every(lv => (sets[lv]||0) >= nsets[lv]);
+}
+
+// Streak -> sentence-token rendering tier: "py" (pinyin only), "ruby" (characters
+// with small pinyin above), "bare" (characters alone).
+function charTier(streak){
+  const s = +streak || 0;
+  if(s >= CHAR_BARE) return "bare";
+  if(s >= CHAR_MASTERED) return "ruby";
+  return "py";
+}
+// The full per-token decision used by the app's sentence renderer: mixing only
+// happens once characters are unlocked AND the learner hasn't switched it off.
+function sentenceTokenTier(streak, unlocked, mixChars){
+  if(!unlocked || !mixChars) return "py";
+  return charTier(streak);
+}
+
+// learned: VOCAB entries the learner knows by sound; cprog: prog.c; vocab: VOCAB (for
+// frequency order). Returns up to n learned words with no character record yet,
+// HSK 1 first, VOCAB (frequency) order within a level.
+function newCharWords(learned, cprog, vocab, n){
+  const idx = new Map(); (vocab||[]).forEach((v,i)=>idx.set(v.w, i));
+  const c = cprog || {};
+  return (learned||[]).filter(v => !c[v.w])
+    .sort((a,b) => (a.lv - b.lv) || ((idx.get(a.w)||0) - (idx.get(b.w)||0)))
+    .slice(0, n);
+}
+
+// entry: VOCAB entry; pool: VOCAB. Returns 3 other VOCAB entries as character-tile
+// distractors for pickChar: prefer same level + same character count, then same
+// level any length, then any. Never the same `w`, never the same gloss (`en`), and
+// never a homophone (same numbered pinyin -- pickChar shows the pinyin and plays the
+// audio, so 他/她/它-style twins would make the item ambiguous). Distractors are
+// also pairwise distinct in `w` and gloss.
+function charOpts(entry, pool){
+  const ansEn = String(entry.en).trim().toLowerCase();
+  const ansN = pipeline(entry.n);
+  const len = [...String(entry.w)].length;
+  const candidates = (pool||[]).filter(v => v.w !== entry.w
+    && String(v.en).trim().toLowerCase() !== ansEn && pipeline(v.n) !== ansN);
+  const chosen = []; const seenW = new Set([entry.w]); const seenEn = new Set([ansEn]);
+  function addFrom(list){
+    list.forEach(v => {
+      if(chosen.length >= 3) return;
+      const en = String(v.en).trim().toLowerCase();
+      if(seenW.has(v.w) || seenEn.has(en)) return;
+      seenW.add(v.w); seenEn.add(en); chosen.push(v);
+    });
+  }
+  addFrom(shuffle(candidates.filter(v => v.lv === entry.lv && [...String(v.w)].length === len)));
+  addFrom(shuffle(candidates.filter(v => v.lv === entry.lv)));
+  addFrom(shuffle(candidates.slice()));
+  return chosen.slice(0, 3);
+}
+
 // ------------------------------------------------------------------- export
 const API = { syll, mark, tones, strip, pyHTML, normType, acceptTypeAnswer, distractors, strata,
   placementStopIndex, validateProgShape, migrateProg, meaningOpts, pinyinOpts, firstTwoWords, gloss, escapeHtml,
   SENTENCE_FUNCTION_WORDS, guessTone, sentenceTokens, sentenceOpts, gapCandidateIndices, gapOpts, capitalizeFirstSpan,
+  CHAR_MASTERED, CHAR_BARE, charsUnlocked, charTier, sentenceTokenTier, newCharWords, charOpts,
   VALID_SYLLABLES, INITIAL_FINALS, splitSyllable, pipeline, numberedCandidates, markSyllable };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.PinyinCore = API;

@@ -2,7 +2,7 @@
 
 Live: https://ishmum123.github.io/hsk/
 
-A self-contained HTML app for understanding spoken Mandarin: it teaches the meaning of ~1200 HSK 1–4 vocabulary words, and ~880 short sentences built from them, as sounds, not characters. You hear or read pinyin and pick the meaning (or the reverse) — the goal is following a drama or conversation by ear, not reading or writing. Characters are optional (hidden by default; a toggle in Progress and on the Words screen shows them small, never as the only cue). Pinyin spelling and tones are a passive aid, covered in the optional "Sounds" tab and an "Extras" test, not the main drill. No backend, no build tooling required to run — open `index.html` directly in a browser, or visit the live GitHub Pages URL above. All data and logic are inlined, so once the page has loaded it keeps working offline; the one exception is the Google Fonts `<link>` (falls back to the system font if unreachable, so the app still works, just without the custom typeface).
+A self-contained HTML app for understanding spoken Mandarin: it teaches the meaning of ~1200 HSK 1–4 vocabulary words, and ~880 short sentences built from them, as sounds, not characters. You hear or read pinyin and pick the meaning (or the reverse) — the goal is following a drama or conversation by ear, not reading or writing. Characters are optional (hidden by default; a toggle in Progress and on the Words screen shows them small, never as the only cue). Once all of HSK 1–3 is taught, a Characters stage teaches recognition of the characters of words already known by sound, and sentences gradually swap pinyin for characters as those are mastered (toggle in Progress). Pinyin spelling and tones are a passive aid, covered in the optional "Sounds" tab and an "Extras" test, not the main drill. No backend, no build tooling required to run — open `index.html` directly in a browser, or visit the live GitHub Pages URL above. All data and logic are inlined, so once the page has loaded it keeps working offline; the one exception is the Google Fonts `<link>` (falls back to the system font if unreachable, so the app still works, just without the custom typeface).
 
 This repository publishes only the pinyin trainer. A sibling character trainer (`hsk_characters.html`) exists in the local working copy but is excluded via `.gitignore` and is not part of this public repo.
 
@@ -63,4 +63,11 @@ Runs, against real `data/` files:
 18. Sentence-render capitalization regression guard: a Node-side mirror of `sentencePyHTML`'s render pipeline (tags stripped) equals each sentence's stored `py` with its first letter uppercased, across all 882 sentences — catches the 阿姨 ("āyí" → "āYí") class of bug where capitalizing "the first letter" landed on the wrong syllable.
 19. `guessTone` unit cases covering `SENTENCE_EXTRA`-shaped compounds (neutral-tone suffixes like "-men"/"-ge", multi-syllable words, and the untoned fallback).
 
-Current result: **0/1193 mark() mismatches, all 20 checks pass (0–19).**
+20. Phase 3 migration: a v1 export, a v2 export without `c`/`mixChars`, and a current record keep every existing field deep-equal through `validateProgShape` + `migrateProg`, gain `c:{}`/`mixChars:true` defaults when absent, and round-trip idempotently.
+21. `validateProgShape` accepts well-formed and rejects malformed `c` (character progress) and `mixChars`.
+22. `charOpts` (pickChar tile distractors) over 200 random words — 4 distinct words, all VOCAB, none sharing the answer's gloss or pinyin; reports same-level ratio.
+23. Mixed-script tier decision (`PC.charTier`/`PC.sentenceTokenTier`): pinyin below streak 3, ruby 3–5, bare characters at 6+, pinyin whenever characters are locked or mixing is off.
+24. Characters gate: placement strata end exactly at each level's set count, so placement past HSK 3 unlocks `PC.charsUnlocked`; one set short stays locked.
+25. `newCharWords` ordering: skips recorded words, HSK 1 first then VOCAB order, capped.
+
+Current result: **0/1193 mark() mismatches, all 26 checks pass (0–25).**

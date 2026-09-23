@@ -67,6 +67,45 @@ Progress: `prog.s = {sentenceIndex:{r,w,s}}` keyed by `zh`; mastered = streak �
 - Characters remain hidden when `showChars` is false (browser DOM grep as before).
 - A Today session with sentences available runs the step end to end; with none available it skips cleanly.
 
+## Phase 3 — Characters (recognition)
+
+Goal: once the learner has been taught all HSK 1–3 vocabulary by sound, teach **recognition** of the characters of words they already know, and progressively swap sentence pinyin for characters as per-word character mastery grows. Characters come from VOCAB `w` only (no radicals/components). Never writing.
+
+Data/progress: no new data file. `prog.c = {[word]:{r,w,s}}` keyed by VOCAB `w` (same record shape as `prog.s`); a miss resets `s` to 0. Character **mastered** = `s ≥ 3`; **bare** (no pinyin in sentences) = `s ≥ 6` (`PC.CHAR_MASTERED`, `PC.CHAR_BARE`). `prog.mixChars` (boolean, default true) = mix known characters into sentences. Still `v:2` (purely additive). `PC.migrateProg` adds `c:{}` / `mixChars:true` when absent and changes nothing else; `validateProgShape` accepts `c` (same rules as `s`) and `mixChars` (boolean). Boot migration also fires when `c` or `mixChars` is missing; import keeps the current `mixChars` (like `theme`/`showChars`) when the import lacks it; Reset clears `c` and restores `mixChars:true`.
+
+Gate: `charsUnlocked()` = `prog.sets[1..3] ≥ nSets(1..3)` (`PC.charsUnlocked(sets, nsets)`). Placement past HSK 3 sets exactly these counters (the last placement stratum of each level ends at `nSets`; node check 24). Before unlock nothing character-related appears in Today/Test/Progress and sentence rendering is unchanged.
+
+### Item types
+- **readChar** — characters shown large → "What does it mean?" → 4 meanings (`meaningOpts`). No pinyin, no audio in the stimulus.
+- **charSound** — characters shown → "How is it said?" → 4 pinyin options (`pinyinOpts`).
+- **pickChar** — audio auto-plays (speaker glyph to replay) + tone-coloured pinyin shown → "Which one is it?" → 4 character tiles. Distractors `PC.charOpts(entry, pool)`: 3 other VOCAB words, same level + same character count first, then same level, then any; never the same `w`, never the same `en`, never a homophone (same `n`).
+- Reveal (all three): characters, tone-coloured pinyin, meaning; audio plays on reveal for readChar/charSound (pickChar already played it). Tap the reveal to hear it again. Scoring writes `prog.c` only.
+
+### Where it appears (only when unlocked)
+- **Today**: path strip gains a final **字** stage, fill = characters mastered / all VOCAB words (HSK 1–4). Step 6 **Characters** after Sentences: teach cards for up to 6 new words (`PC.newCharWords`: learned by sound, no `prog.c` record, HSK 1 first, VOCAB order within level) — character large, pinyin, meaning, play glyph — then an 8-item drill: the new words as pickChar/readChar (50/50) plus weakest-first existing records at readChar 40 / charSound 30 / pickChar 30. With no new words left, the step is just the 8-item review. Session summary adds "Characters: N new, M drilled, K missed." (M = distinct words in the drill incl. new ones; K = distinct words missed at least once). One-time hint while `prog.c` is empty: "Characters unlocked — you'll start recognising the words you already know." with a **Learn the first characters** button that runs just the Characters step and returns to Today; it hides once any `prog.c` record exists.
+- **Test**: **Characters N** (N = min(20, pool)) — the three types mixed 40/30/30 from words with `prog.c` records weakest-first, topped up with learned words (HSK 1 first) when fewer than 20 have records; score + missed list (tap to hear), as Sentences 20.
+- **Progress**: per level "HSK n characters: learned X / mastered Y of Z" (learned = has a `prog.c` record, Z = words in the level) and a chip toggle **Mix known characters into sentences** bound to `prog.mixChars`.
+
+### Mixed-script sentences
+Everywhere a sentence's word-spaced pinyin renders (`sentencePyHTML`: readSentence/gapSentence stimulus, hear/read/gap reveals, no-speech hearSentence fallback, example-sentence lines on word cards and reveals), when `charsUnlocked() && prog.mixChars`, each token renders by its character streak (`PC.sentenceTokenTier(streak, unlocked, mixChars)`). A SENTENCE_EXTRA token uses its `base` word's streak and displays its own characters.
+
+| streak | rendering |
+|---|---|
+| 0–2 | pinyin only (unchanged) |
+| 3–5 | `<ruby>字<rt>zì</rt></ruby>`, tone-coloured pinyin in the ruby |
+| ≥ 6 | characters alone |
+
+Each token keeps its `data-sent`/`data-widx` wrapper, so tap-to-hear works unchanged. The gap blank and the gap options stay pinyin. `showChars` keeps its meaning (the full character line beside every word/sentence) and is independent of mixing.
+
+**Character-visibility rule, relaxed:** with `showChars` false, VOCAB characters still never appear in the DOM **except** (a) the Characters step (teach cards + drill), (b) the Characters test, (c) mixed sentence tokens whose word has character streak ≥ 3, and (d) the 字 path-strip label (a static UI glyph, like the existing Words-tab icon). All four exist only after unlock.
+
+### Acceptance
+- Existing progress untouched: a v1 export, a v2 export without `c`/`mixChars`, and a current record all keep every existing field exactly through `validateProgShape` + `migrateProg` (node check 20); c/mixChars validation (21).
+- `charOpts` over 200 words: 4 distinct `w`, all VOCAB, no distractor sharing `en` or pinyin with the answer (22).
+- Tier decision: pinyin < 3, ruby 3–5, bare ≥ 6, pinyin whenever locked or `mixChars` off (23). Gate + placement counters (24). New-word ordering (25).
+- Pre-unlock: no Characters step/row/test/toggle/hint, 4-stage path strip, no CJK in `#panel` with `showChars` off (browser DOM grep as before).
+- Unlocked: Today runs Review → … → Sentences → Characters → summary end to end; Characters 20 runs; mix toggle switches sentence rendering between mixed and pure pinyin.
+
 ## Deviations
 
 - **`n` field spells ü as `ü`, not `v`.** The real `data/hsk_vocab.js` (produced by the parallel vocab worker) uses the literal `ü` character in the numbered field (e.g. `n:"nü3er2"`, `n:"lü4"`), not the `v` substitute this spec's Data section describes. `normType`/`acceptTypeAnswer` treat `ü`, `v`, and `u:` as equivalent on both sides of the comparison, so this has no user-visible effect — "nv3er2", "nü3er2" and "nu:3er2"-style input all work — but code reading `n` directly (rather than through the helpers) should not assume `v`.
@@ -122,3 +161,16 @@ Progress: `prog.s = {sentenceIndex:{r,w,s}}` keyed by `zh`; mastered = streak �
 - **`availableSentences()` no longer recomputes `learnedWords()`/`currentLevel()` once per sentence.** Both are themselves O(VOCAB) scans; calling them inside the `.filter()` callback made the whole function O(SENTENCES × VOCAB) (~4M ops on the full corpus) for what should be a cheap per-render lookup. The learned-word `Set` and current level are now computed once per call and threaded through `sentenceAvailable(sentence, lwSet, curLv)`/`sentenceWordsLearned(sentence, lwSet)` as parameters instead of each rebuilding its own.
 - **不's gloss gets a hand-picked override ("no; not"), not just build_en's automatic rule.** After the register-tag join fix (previous entry), build_en correctly stops joining 不's "(bound form) not; un-" onto its first sense, leaving only the source's own "no; not so" — technically correct, but an over-literal gloss for HSK 1's basic negation particle. `GLOSS_OVERRIDE` in `tools/build_vocab.py` is a new, small, word-keyed override map (currently one entry) applied after `build_en`, for exactly this kind of case: the automatic rules picked a defensible sense, but the plainest English gloss needs a human call the source text doesn't make for you. Documented inline with the reasoning, not silently overwritten.
 - **Stale-build guard: `tests/pinyin_checks.js` now rebuilds the app to a scratch file via the real `build.sh` and diffs it against the shipped `hsk_pinyin.html`/`index.html` (check 0), failing the whole suite if they differ.** Every other check runs against `src/`/`data/` source files directly, never the shipped bundle, so a code/data edit made without a following `sh build.sh` could previously pass every check while shipping a stale bundle. `build.sh`'s `OUT`/`INDEX` variables are now `${VAR:-default}`-overridable via environment so the check can redirect the rebuild to a temp path without touching the real output files as a side effect of just running the test suite.
+
+### Phase 3 — Characters (2026-09-23)
+
+- **`charOpts` also excludes homophones** (same numbered pinyin, e.g. 他/她/它), on top of "never same `w`, never same `en`". pickChar shows the pinyin and plays the audio, so a homophone tile would be a second correct answer. Distractors are also pairwise distinct in gloss.
+- **The unlock hint carries an action button** ("Learn the first characters", runs the Characters step alone then returns to Today; no session count increment) rather than being text-only, following the existing "hints act directly" pattern. It still hides by state (first `prog.c` record), no dismiss button.
+- **Path-strip 字 fraction = characters mastered (streak ≥ 3) / all 1193 VOCAB words**, not / learned words, so the bar reads as progress toward the whole HSK 1–4 character set.
+- **"M drilled" in the session summary counts distinct words in the Characters drill, including the new ones** (so a normal step reads "6 new, 8 drilled").
+- **Retaking placement does not touch `prog.c`.** If a retake drops the learner below HSK 3 the stage re-locks (nothing character-related renders, sentence rendering reverts to pinyin), but character records are kept for when it unlocks again.
+- **The initial in-memory `prog` literal omits `c`/`mixChars`**, so every load (fresh or stored) goes through the extended boot condition and `PC.migrateProg` seeds them; there is one place that knows the defaults.
+- **`wireSayTaps` also resolves `data-vidx`** (a VOCAB index) so character reveals, including those replayed on a drill's missed list, are tappable to hear without putting the word in a `data-*` attribute.
+- **Whether Today's Characters step runs is decided at "Start today"**, from a `charsUnlocked()` snapshot on the session state, not re-checked at step 6. Finishing the last HSK 3 set during the Learn step therefore doesn't add a step the plan didn't announce; the next session includes it. The hint button's standalone Characters run is unaffected.
+- **Bare mixed-sentence tokens use class `mxzh`** (not `zh`), so they take the surrounding line's size instead of inheriting the `.rowset .zh` / `.wl .zh` fixed sizing inside example rows and reveals.
+- **Characters 20 (Test) is available right at unlock, before any teach cards.** With fewer than 20 records it tops up from learned words, so taking it first creates `prog.c` records (and hides the unlock hint) for words never shown on a teach card. Accepted as spec-conformant (the test draws from learned words); no change.

@@ -86,6 +86,18 @@
   .replay{border:1px solid var(--line);background:transparent;border-radius:999px;width:44px;height:44px;font-size:17px;color:var(--ink);flex:0 0 auto}
   .listen-stage{display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0}
   .contour{display:inline-block}
+  /* Phase 3 characters: large character stimulus, character option tiles, the
+     Characters-step teach cards, and mixed-script sentence tokens (ruby / bare). */
+  .zhbig{font-family:var(--zh);font-size:64px;line-height:1.25;text-align:center;margin:6px 0 16px;font-weight:500}
+  .opts-zh button{font-family:var(--zh);font-size:28px;text-align:center;font-weight:500}
+  .opts-zh button b.num{font-family:var(--font)}
+  .charteach{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+  .charteach .zh{font-family:var(--zh);font-size:40px;line-height:1.2;flex:0 0 auto;min-width:56px;text-align:center}
+  .charteach .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .charteach .en{color:var(--mute);font-size:14px}
+  ruby.mx{font-family:var(--zh);ruby-position:over}
+  ruby.mx rt{font-family:var(--font);font-size:0.55em;line-height:1}
+  .mxzh{font-family:var(--zh)}
   .t1{color:var(--t1)} .t2{color:var(--t2)} .t3{color:var(--t3)} .t4{color:var(--t4)} .t5{color:var(--t5)}
   input[type=text]{width:100%;padding:14px 14px;border:1px solid var(--line);border-radius:12px;font-size:19px;background:var(--card);color:var(--ink);font-family:var(--font)}
   input[type=text]:focus{outline:3px solid #7AA7D9;outline-offset:1px}
@@ -1083,14 +1095,19 @@ function validateProgShape(data){
   if(data.dismissedSoundsHint !== undefined && typeof data.dismissedSoundsHint !== "boolean" && typeof data.dismissedSoundsHint !== "number") return {ok:false, reason:"dismissedSoundsHint must be a boolean or number"};
   if(data.placedOnce !== undefined && typeof data.placedOnce !== "boolean" && typeof data.placedOnce !== "number") return {ok:false, reason:"placedOnce must be a boolean or number"};
   if(data.soundsOpened !== undefined && typeof data.soundsOpened !== "boolean" && typeof data.soundsOpened !== "number") return {ok:false, reason:"soundsOpened must be a boolean or number"};
-  if(data.s !== undefined){
-    if(!data.s || typeof data.s !== "object" || Array.isArray(data.s)) return {ok:false, reason:"s must be an object"};
-    for(const k of Object.keys(data.s)){
-      const p = data.s[k];
-      if(!p || typeof p !== "object" || Array.isArray(p)) return {ok:false, reason:`s.${k} must be an object`};
-      for(const f of ["r","w","s"]) if(p[f] !== undefined && typeof p[f] !== "number") return {ok:false, reason:`s.${k}.${f} must be a number`};
+  // s (sentence progress, Phase 2) and c (character progress, Phase 3) share one
+  // record shape: {r,w,s} numbers, keyed by sentence zh / VOCAB w respectively.
+  for(const bucket of ["s","c"]){
+    const m = data[bucket];
+    if(m === undefined) continue;
+    if(!m || typeof m !== "object" || Array.isArray(m)) return {ok:false, reason:`${bucket} must be an object`};
+    for(const k of Object.keys(m)){
+      const p = m[k];
+      if(!p || typeof p !== "object" || Array.isArray(p)) return {ok:false, reason:`${bucket}.${k} must be an object`};
+      for(const f of ["r","w","s"]) if(p[f] !== undefined && typeof p[f] !== "number") return {ok:false, reason:`${bucket}.${k}.${f} must be a number`};
     }
   }
+  if(data.mixChars !== undefined && typeof data.mixChars !== "boolean") return {ok:false, reason:"mixChars must be a boolean"};
   return {ok:true, data};
 }
 
@@ -1099,11 +1116,17 @@ function validateProgShape(data){
 // progress object. Word/set/lesson data is unchanged between versions — only `v` and the
 // new `showChars` field (default false) differ. Shared by the app's import handler and
 // its boot-time migration so there is exactly one place that knows the v1->v2 shape.
+// Phase 3 adds two more defaulted fields, still under v:2 (the change is purely
+// additive): `c` (character progress, {}) and `mixChars` (mix known characters into
+// sentence rendering, true). Every field already present in `data` is carried over
+// untouched -- only missing fields are filled.
 function migrateProg(data){
-  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{} };
+  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{}, c:{}, mixChars:true };
   const merged = Object.assign({}, base, data||{}, {v:2});
   if(merged.showChars === undefined) merged.showChars = false;
   if(merged.s === undefined) merged.s = {};
+  if(merged.c === undefined) merged.c = {};
+  if(merged.mixChars === undefined) merged.mixChars = true;
   return merged;
 }
 
@@ -1241,10 +1264,77 @@ function gapOpts(entry, pool){
   return chosen.slice(0,3);
 }
 
+// ------------------------------------------------------------- characters (Phase 3)
+// Character recognition of words already known by sound. Progress lives in
+// prog.c[w] = {r,w,s} (same shape as prog.s). Thresholds on the streak `s`:
+const CHAR_MASTERED = 3; // "mastered" for Progress / path strip; ruby tier in sentences
+const CHAR_BARE = 6;     // characters alone (no pinyin) in mixed sentences
+
+// Gate: all of HSK 1-3 taught. sets = prog.sets; nsets = {1:n1, 2:n2, 3:n3} (total
+// set counts per level, passed in so core stays data-free).
+function charsUnlocked(sets, nsets){
+  sets = sets || {};
+  return [1,2,3].every(lv => (sets[lv]||0) >= nsets[lv]);
+}
+
+// Streak -> sentence-token rendering tier: "py" (pinyin only), "ruby" (characters
+// with small pinyin above), "bare" (characters alone).
+function charTier(streak){
+  const s = +streak || 0;
+  if(s >= CHAR_BARE) return "bare";
+  if(s >= CHAR_MASTERED) return "ruby";
+  return "py";
+}
+// The full per-token decision used by the app's sentence renderer: mixing only
+// happens once characters are unlocked AND the learner hasn't switched it off.
+function sentenceTokenTier(streak, unlocked, mixChars){
+  if(!unlocked || !mixChars) return "py";
+  return charTier(streak);
+}
+
+// learned: VOCAB entries the learner knows by sound; cprog: prog.c; vocab: VOCAB (for
+// frequency order). Returns up to n learned words with no character record yet,
+// HSK 1 first, VOCAB (frequency) order within a level.
+function newCharWords(learned, cprog, vocab, n){
+  const idx = new Map(); (vocab||[]).forEach((v,i)=>idx.set(v.w, i));
+  const c = cprog || {};
+  return (learned||[]).filter(v => !c[v.w])
+    .sort((a,b) => (a.lv - b.lv) || ((idx.get(a.w)||0) - (idx.get(b.w)||0)))
+    .slice(0, n);
+}
+
+// entry: VOCAB entry; pool: VOCAB. Returns 3 other VOCAB entries as character-tile
+// distractors for pickChar: prefer same level + same character count, then same
+// level any length, then any. Never the same `w`, never the same gloss (`en`), and
+// never a homophone (same numbered pinyin -- pickChar shows the pinyin and plays the
+// audio, so 他/她/它-style twins would make the item ambiguous). Distractors are
+// also pairwise distinct in `w` and gloss.
+function charOpts(entry, pool){
+  const ansEn = String(entry.en).trim().toLowerCase();
+  const ansN = pipeline(entry.n);
+  const len = [...String(entry.w)].length;
+  const candidates = (pool||[]).filter(v => v.w !== entry.w
+    && String(v.en).trim().toLowerCase() !== ansEn && pipeline(v.n) !== ansN);
+  const chosen = []; const seenW = new Set([entry.w]); const seenEn = new Set([ansEn]);
+  function addFrom(list){
+    list.forEach(v => {
+      if(chosen.length >= 3) return;
+      const en = String(v.en).trim().toLowerCase();
+      if(seenW.has(v.w) || seenEn.has(en)) return;
+      seenW.add(v.w); seenEn.add(en); chosen.push(v);
+    });
+  }
+  addFrom(shuffle(candidates.filter(v => v.lv === entry.lv && [...String(v.w)].length === len)));
+  addFrom(shuffle(candidates.filter(v => v.lv === entry.lv)));
+  addFrom(shuffle(candidates.slice()));
+  return chosen.slice(0, 3);
+}
+
 // ------------------------------------------------------------------- export
 const API = { syll, mark, tones, strip, pyHTML, normType, acceptTypeAnswer, distractors, strata,
   placementStopIndex, validateProgShape, migrateProg, meaningOpts, pinyinOpts, firstTwoWords, gloss, escapeHtml,
   SENTENCE_FUNCTION_WORDS, guessTone, sentenceTokens, sentenceOpts, gapCandidateIndices, gapOpts, capitalizeFirstSpan,
+  CHAR_MASTERED, CHAR_BARE, charsUnlocked, charTier, sentenceTokenTier, newCharWords, charOpts,
   VALID_SYLLABLES, INITIAL_FINALS, splitSyllable, pipeline, numberedCandidates, markSyllable };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.PinyinCore = API;
@@ -1259,6 +1349,9 @@ const pick = (a,n) => shuffle(a.slice()).slice(0,n);
 const escapeHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
 // ===================== progress =====================
+// c (character progress) and mixChars (Phase 3) are deliberately absent here: the
+// boot-time migration below seeds them via PC.migrateProg, the one shared place that
+// knows the defaults, for fresh and stored progress alike.
 let prog = { v:2, w:{}, s:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false };
 const store = {
   async load(){
@@ -1351,6 +1444,26 @@ function availableSentences(){
 function wordExampleSentences(w, n){
   return SENTENCES.filter(s => (s.words||[]).indexOf(w) >= 0).slice(0, n);
 }
+
+// ===================== characters (Phase 3) =====================
+// Recognition of the characters of words already known by sound. Unlocked once every
+// HSK 1-3 set is taught (placement past HSK 3 sets these counters too). Before that,
+// nothing character-related renders anywhere (besides the existing showChars toggle).
+function charsUnlocked(){ return PC.charsUnlocked(prog.sets, {1:nSets(1), 2:nSets(2), 3:nSets(3)}); }
+function markChar(w, ok){
+  if(!prog.c) prog.c = {};
+  const p = prog.c[w] || {r:0,w:0,s:0};
+  if(ok){ p.r++; p.s++; } else { p.w++; p.s=0; }
+  prog.c[w] = p; store.save();
+}
+const charStreak = w => ((prog.c||{})[w]||{}).s || 0;
+const charMastered = w => charStreak(w) >= PC.CHAR_MASTERED;
+const charWeakScore = w => { const p = (prog.c||{})[w]||{r:0,w:0,s:0}; return p.w*3 - p.s; };
+function weakFirstChars(list, n){
+  return list.slice().sort((a,b)=>(charWeakScore(b.w)-charWeakScore(a.w)) + (Math.random()-0.5)).slice(0,n);
+}
+// VOCAB entries with a character record, in VOCAB order.
+function charRecordWords(){ const c = prog.c||{}; return VOCAB.filter(v=>c[v.w]); }
 
 // ===================== speech =====================
 const SS = window.speechSynthesis || null;
@@ -1608,8 +1721,10 @@ function sentenceIndexOf(sentence){ return SENTENCES.indexOf(sentence); }
 function wireSayTaps(root){
   const el = root || $("rv"); if(!el) return;
   el.addEventListener("click", e => {
-    const t = e.target.closest("[data-sent]");
+    // data-vidx (a VOCAB index) = speak that vocab word (Phase 3 character reveals).
+    const t = e.target.closest("[data-sent],[data-vidx]");
     if(!t || !el.contains(t)) return;
+    if(t.dataset.vidx !== undefined){ const v = VOCAB[+t.dataset.vidx]; if(v) say(v.w); return; }
     const s = SENTENCES[+t.dataset.sent]; if(!s) return;
     const text = t.dataset.widx !== undefined ? (s.words||[])[+t.dataset.widx] : s.zh;
     if(text) say(text);
@@ -1622,15 +1737,26 @@ function wireSayTaps(root){
 // by its last syllable's tone instead (PC.guessTone) — see the Deviations note.
 // blankIndex, if given, renders that word's slot as "____" instead (gapSentence) and
 // never tappable (tapping it would say the answer).
+//
+// Phase 3 mixed script: once characters are unlocked and prog.mixChars is on, each
+// token renders by its character streak (PC.sentenceTokenTier): streak 0-2 pinyin
+// only, 3-5 characters with the tone-coloured pinyin as ruby above, >=6 characters
+// alone. A SENTENCE_EXTRA token uses its `base` VOCAB word's streak but displays its
+// own characters. The gap blank never changes (still "____", gap options pinyin).
 function sentencePyHTML(sentence, blankIndex){
   const toks = PC.sentenceTokens(sentence);
   if(!toks) return escapeHtml(sentence.py); // alignment guard; shouldn't happen on validated data
   const sIdx = sentenceIndexOf(sentence);
+  const unlocked = charsUnlocked(), mix = prog.mixChars !== false;
   return toks.map(t => {
     if(blankIndex === t.index) return `<span class="t5">____</span>${escapeHtml(t.punct)}`;
     const entry = VOCAB_BY_W[t.word];
     let inner = entry ? PC.pyHTML(entry.n) : `<span class="t${PC.guessTone(t.core)}">${escapeHtml(t.core)}</span>`;
     if(t.index === 0) inner = PC.capitalizeFirstSpan(inner);
+    const baseW = entry ? entry.w : ((SENTENCE_EXTRA[t.word]||{}).base || t.word);
+    const tier = PC.sentenceTokenTier(charStreak(baseW), unlocked, mix);
+    if(tier === "ruby") inner = `<ruby class="mx">${escapeHtml(t.word)}<rt>${inner}</rt></ruby>`;
+    else if(tier === "bare") inner = `<span class="mxzh">${escapeHtml(t.word)}</span>`;
     return `<span data-sent="${sIdx}" data-widx="${t.index}">${inner}</span>${escapeHtml(t.punct)}`;
   }).join(" ");
 }
@@ -1703,6 +1829,50 @@ function sentenceItemFor(sentence){
   return gapSentence(sentence) || readSentence(sentence);
 }
 
+// ===================== character item builders (Phase 3) =====================
+// Stimulus never shows pinyin for readChar/charSound (reading the characters is the
+// point); every reveal does. Scoring writes prog.c only, never prog.w. `cw` tags the
+// item with its word so the Today summary can count distinct misses.
+function charRevealBlock(entry){
+  const vidx = VOCAB.indexOf(entry);
+  return `<div data-vidx="${vidx}" style="cursor:pointer"><div class="zhbig" style="font-size:40px;margin:0 0 4px">${escapeHtml(entry.w)}</div>
+    <div class="py" style="text-align:center">${PC.pyHTML(entry.n)} <span style="color:var(--mute);vertical-align:middle">${REPLAY_SVG}</span></div>
+    <div style="color:var(--mute);text-align:center">${escapeHtml(PC.gloss(entry))}</div></div>`;
+}
+const charRevealHook = entry => () => { if(hasSpeech) say(entry.w); wireSayTaps(); };
+// readChar — characters shown; pick the meaning.
+function readCharItem(entry){
+  const ds = PC.meaningOpts(entry, VOCAB);
+  return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero", cw: entry.w,
+    html: `<div class="zhbig">${escapeHtml(entry.w)}</div>`,
+    opts: [PC.gloss(entry), ...ds.map(d=>PC.gloss(d))], a: PC.gloss(entry),
+    reveal: charRevealBlock(entry), onAnswer: ok=>markChar(entry.w, ok), onReveal: charRevealHook(entry) };
+}
+// charSound — characters shown; pick how it's said.
+function charSoundItem(entry){
+  const ds = PC.pinyinOpts(entry, VOCAB);
+  return { kind:"mc", label:"How is it said?", optsClass:"opts-hero", cw: entry.w,
+    html: `<div class="zhbig">${escapeHtml(entry.w)}</div>`,
+    opts: [PC.mark(entry.n), ...ds.map(d=>PC.mark(d.n))], a: PC.mark(entry.n),
+    reveal: charRevealBlock(entry), onAnswer: ok=>markChar(entry.w, ok), onReveal: charRevealHook(entry) };
+}
+// pickChar — audio + pinyin shown; pick the characters from 4 tiles.
+function pickCharItem(entry){
+  const ds = PC.charOpts(entry, VOCAB);
+  return { kind:"mc", label:"Which one is it?", optsClass:"opts-hero opts-zh", cw: entry.w,
+    html: (hasSpeech ? `<div class="hear-stage" style="margin:8px 0 10px"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : "")
+      + `<div class="big" style="font-size:36px;margin-top:0">${PC.pyHTML(entry.n)}</div>`,
+    opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w,
+    reveal: charRevealBlock(entry), onAnswer: ok=>markChar(entry.w, ok),
+    mount: () => { if(hasSpeech){ const btn = $("sp"); playWithPulse(entry.w, btn); btn.onclick = ()=>playWithPulse(entry.w, btn); } },
+    onReveal: () => wireSayTaps() };
+}
+// Mixed type for a review/test item: readChar 40 / charSound 30 / pickChar 30.
+function charItemFor(entry){
+  const r = Math.random();
+  return r < 0.4 ? readCharItem(entry) : r < 0.7 ? charSoundItem(entry) : pickCharItem(entry);
+}
+
 // ===================== Extras-only pronunciation items (tone pattern / typed pinyin) =====================
 // Retired from Today/Review/Placement/Listen/Recall in v2; kept only for Test > Extras.
 // Never show characters when showChars is off — fall back to audio + toneless pinyin
@@ -1765,8 +1935,11 @@ function render(){
 // ===================== Today =====================
 // Sounds is optional content, not part of the learning path — the strip is just the
 // four vocab levels now.
+// Phase 3: once characters unlock, a final "字" stage shows mastered characters
+// (prog.c streak >= 3) over all VOCAB words (HSK 1-4).
 function pathStrip(){
   const stages = [1,2,3,4].map(lv=>({ label:"HSK"+lv, frac: (prog.sets[lv]||0)/nSets(lv) }));
+  if(charsUnlocked()) stages.push({ label:"字", frac: VOCAB.filter(v=>charMastered(v.w)).length / VOCAB.length });
   return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.label}</div>`).join("")}</div>`;
 }
 let todayStepState = null;
@@ -1782,6 +1955,17 @@ function todayRender(){
     ["Recall", lw.length ? "8 items" : "skipped until something is learned"],
     ["Sentences", availSent.length >= 8 ? "8 items, weakest first" : "skipped until 8+ sentences are available"]
   ];
+  const unlocked = charsUnlocked();
+  if(unlocked){
+    // Same counts charStep() will use: up to 6 fresh words, topped up to 8 from
+    // existing records (fresh words never have one, so all records are eligible).
+    const nNew = PC.newCharWords(lw, prog.c, VOCAB, 6).length;
+    const nItems = nNew + Math.min(8 - nNew, charRecordWords().length);
+    steps.push(["Characters", nNew ? `${nNew} new, then ${nItems} items` : `${nItems} items, weakest first`]);
+  }
+  // One-time: shown once characters unlock, until the first character record exists.
+  // Carries its own action (runs just the Characters step, then returns here).
+  const showCharHint = unlocked && !Object.keys(prog.c||{}).length;
   // Both hints hide by real state (placement taken / a lesson opened), not a
   // dismiss button, and each carries the action itself rather than pointing at
   // another tab.
@@ -1789,13 +1973,17 @@ function todayRender(){
   const showSoundsHint = !prog.soundsOpened;
   P.innerHTML = `<div class="drill-body">${pathStrip()}
     ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
+    ${showCharHint ? `<div class="stmt" id="charHint">Characters unlocked — you'll start recognising the words you already know.<button class="next" id="hintChars" style="margin-top:8px">Learn the first characters</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">New to pinyin? A quick lesson explains how it's spelled and sounds.<button class="next" id="hintSounds" style="margin-top:8px">Learn how to read it</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
     </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
-  $("go").onclick = () => { todayStepState = { step:0 }; todayStep(); };
+  if(showCharHint) $("hintChars").onclick = () => { todayStepState = { step:6, chars:null }; charStep(todayStepState, todayRender); };
+  // Unlock state is snapshotted at session start: finishing the last HSK 3 set
+  // mid-session must not add an unannounced Characters step (next session picks it up).
+  $("go").onclick = () => { todayStepState = { step:0, charsAtStart: charsUnlocked() }; todayStep(); };
 }
 // Switches the tab bar to Test/Sounds (for the header title and so the tab
 // highlight stays honest) and jumps straight into the action, instead of landing
@@ -1851,16 +2039,57 @@ function todayStep(){
   }
   if(s === 4){ // Sentences: 8 items hear/read/gap ~50/25/25, from available sentences weakest-first
     const availSent = availableSentences();
-    if(availSent.length >= 8){ drill(weakFirstSentences(availSent,8).map(sentenceItemFor), todayFinish, missSummary); return; }
+    if(availSent.length >= 8){ drill(weakFirstSentences(availSent,8).map(sentenceItemFor), todayStep, missSummary); return; }
+    return todayStep();
+  }
+  if(s === 5){ // Characters (Phase 3, only once HSK 1-3 are taught)
+    if(todayStepState.charsAtStart){ charStep(todayStepState, todayFinish); return; }
     return todayFinish();
   }
   todayFinish();
+}
+// Characters step: teach cards for up to 6 new words (learned by sound, no prog.c
+// record yet; HSK 1 first, frequency order), then an 8-item drill -- the new words as
+// pickChar/readChar, topped up weakest-first from existing prog.c records with the
+// readChar 40 / charSound 30 / pickChar 30 mix. Records per-session counts on
+// state.chars for the session summary.
+function charStep(state, onDone){
+  const lw = learnedWords();
+  const fresh = PC.newCharWords(lw, prog.c, VOCAB, 6);
+  const freshSet = new Set(fresh.map(v=>v.w));
+  const review = weakFirstChars(charRecordWords().filter(v=>!freshSet.has(v.w)), 8 - fresh.length);
+  const items = [
+    ...fresh.map(v => Math.random() < 0.5 ? pickCharItem(v) : readCharItem(v)),
+    ...review.map(charItemFor)
+  ];
+  if(!items.length) return onDone();
+  const counts = { fresh: fresh.length, drilled: fresh.length + review.length, missed: 0 };
+  state.chars = counts;
+  const summary = miss => { counts.missed = new Set(miss.map(m=>m.cw)).size; return missSummary(miss); };
+  const run = () => drill(items, onDone, summary);
+  if(fresh.length) charTeach(fresh, run); else run();
+}
+function charTeach(list, onDrill){
+  setScore(0,0);
+  const P = $("panel");
+  P.innerHTML = `<p class="q">Characters for words you already know. Tap one to hear it.</p>
+    <div id="ctl"></div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
+  const tl = $("ctl");
+  list.forEach(w => {
+    const row = document.createElement("div"); row.className = "charteach";
+    row.innerHTML = `<span class="zh">${escapeHtml(w.w)}</span><span class="info"><span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span></span><span style="color:var(--mute);flex:0 0 auto">${REPLAY_SVG}</span>`;
+    row.onclick = () => say(w.w);
+    tl.appendChild(row);
+  });
+  $("dr").onclick = onDrill;
 }
 function todayFinish(){
   D = null; drillKeyHandler = null; setScore(0,0);
   prog.sessions = (prog.sessions||0) + 1; store.save();
   const P = $("panel");
-  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p><button class="next" id="again">Back to Today</button></div>`;
+  const ch = todayStepState && todayStepState.chars;
+  const charLine = ch ? `<p class="q">Characters: ${ch.fresh} new, ${ch.drilled} drilled, ${ch.missed} missed.</p>` : "";
+  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p>${charLine}<button class="next" id="again">Back to Today</button></div>`;
   $("again").onclick = todayRender;
 }
 function vocabTeach(list, lv, onDrill){
@@ -2047,6 +2276,11 @@ function testRender(){
   // slices to whatever's available) — label them by the actual count so the
   // number on the button is never a promise the drill doesn't keep.
   const listenN = Math.min(20, lw.length), recallN = listenN, sentN = Math.min(20, availSent.length);
+  // Phase 3: Characters test, only once unlocked. Pool = words with a character
+  // record, weakest first; topped up with learned words (HSK 1 first, frequency
+  // order) when fewer than 20 have records.
+  const unlocked = charsUnlocked();
+  const charPool = unlocked ? charTestPool(lw) : [];
   // When gated, the note's own button IS "take placement" — showing the plain
   // "Take Placement" button too would put two identical CTAs on screen. Only one
   // shows at a time.
@@ -2058,6 +2292,7 @@ function testRender(){
         <button class="ghost" id="tRecall" style="flex:1">Recall ${recallN}</button>
       </div>` : ""}
       ${availSent.length >= 8 ? `<button class="ghost" id="tSentences">Sentences ${sentN}</button>` : ""}
+      ${charPool.length ? `<button class="ghost" id="tChars">Characters ${charPool.length}</button>` : ""}
       <button class="ghost" id="extras">Extras: tones · typed pinyin</button>
     </div>`;
   $("extras").onclick = () => { testSel = "extras"; testRender(); };
@@ -2070,6 +2305,15 @@ function testRender(){
   if(availSent.length >= 8){
     $("tSentences").onclick = () => drill(weakFirstSentences(availSent,20).map(s=>hearSentence(s)), testRender, missSummary);
   }
+  if(charPool.length){
+    $("tChars").onclick = () => drill(charTestPool(learnedWords()).map(charItemFor), testRender, missSummary);
+  }
+}
+function charTestPool(lw){
+  const recs = weakFirstChars(charRecordWords(), 20);
+  if(recs.length >= 20) return recs;
+  const have = new Set(recs.map(v=>v.w));
+  return [...recs, ...PC.newCharWords(lw.filter(v=>!have.has(v.w)), prog.c, VOCAB, 20 - recs.length)];
 }
 // Extras: v1's pronunciation-focused items (tone pattern, typed pinyin), kept as an
 // optional secondary test — not part of Today/Review/Placement/Listen/Recall in v2.
@@ -2169,20 +2413,27 @@ function progressRender(){
   const P = $("panel");
   const lwAll = learnedWords();
   const availSent = availableSentences();
+  const unlocked = charsUnlocked();
   const rows = [1,2,3,4].map(lv => {
     const list = levelList(lv); const learnedList = lwAll.filter(w=>w.lv===lv);
     const masteredN = learnedList.filter(w=>mastered(w.w)).length;
     const sentLv = SENTENCES.filter(s=>s.lv===lv); const sentAvailLv = availSent.filter(s=>s.lv===lv);
     const sentMasteredN = sentAvailLv.filter(s=>sentenceMastered(s.zh)).length;
+    // Phase 3: "learned" = has a prog.c record; mastered = streak >= 3; of all words
+    // in the level. Only rendered once characters are unlocked.
+    const charRow = unlocked ? (() => {
+      const recN = list.filter(w=>(prog.c||{})[w.w]).length, cmN = list.filter(w=>charMastered(w.w)).length;
+      return `<tr><td>HSK ${lv} characters</td><td>learned ${recN} / mastered ${cmN} of ${list.length}</td></tr>`;
+    })() : "";
     return `<tr><td>HSK ${lv}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>
-      <tr><td>HSK ${lv} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>`;
+      <tr><td>HSK ${lv} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>${charRow}`;
   }).join("");
   const weak = weakFirst(lwAll.filter(w=>weakScore(w.w)>0), 10);
   P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No Chinese text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
     <table class="stats">${rows}
       <tr><td>Sounds</td><td>${Object.keys(prog.lessons).length} / ${LESSONS.length} lessons done</td></tr>
       <tr><td>Sessions</td><td>${prog.sessions||0}</td></tr></table>
-    <div class="row" style="margin-top:14px"><button class="chip ${prog.showChars?'on':''}" id="toggleChars">Show characters</button></div>
+    <div class="row" style="margin-top:14px"><button class="chip ${prog.showChars?'on':''}" id="toggleChars">Show characters</button>${unlocked ? `<button class="chip ${prog.mixChars!==false?'on':''}" id="toggleMix">Mix known characters into sentences</button>` : ""}</div>
     <p class="q" style="margin-top:14px">${weak.length ? "Weakest words" : "No weak words yet — nice."}</p>
     ${weak.map(w=>`<div class="rowset">${charSpan(w,"zh")}<span class="py">${PC.pyHTML(w.n)}</span><span class="en">${escapeHtml(PC.gloss(w))}</span></div>`).join("")}
     <div class="row" style="margin-top:16px">
@@ -2197,6 +2448,7 @@ function progressRender(){
     </div>
     <button class="ghost" id="reset" style="margin-top:16px;color:var(--bad);border-color:var(--bad)">Reset all progress</button>`;
   $("toggleChars").onclick = () => { prog.showChars = !prog.showChars; store.save(); progressRender(); };
+  if(unlocked) $("toggleMix").onclick = () => { prog.mixChars = prog.mixChars === false; store.save(); progressRender(); };
   $("exp").onclick = () => {
     const blob = new Blob([JSON.stringify(prog, null, 1)], {type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -2216,12 +2468,13 @@ function progressRender(){
       const data = JSON.parse($("imptxt").value);
       const v = PC.validateProgShape(data);
       if(!v.ok){ showImportError("That doesn't look like valid exported progress: " + v.reason); return; }
-      const prevTheme = prog.theme, prevShowChars = prog.showChars;
+      const prevTheme = prog.theme, prevShowChars = prog.showChars, prevMixChars = prog.mixChars;
       // Both v1 and v2 exports pass validateProgShape; PC.migrateProg (shared with the
       // boot-time migration below) forces v:2 and defaults showChars false.
       prog = PC.migrateProg(v.data);
       if(prog.theme === undefined) prog.theme = prevTheme; // imported progress with no theme keeps the current one
       if(v.data.showChars === undefined) prog.showChars = prevShowChars; // same for showChars
+      if(v.data.mixChars === undefined) prog.mixChars = prevMixChars !== false; // and mixChars
       store.save(); applyTheme(); progressRender();
     }catch(e){
       showImportError("That doesn't look like valid exported progress: " + (e && e.message ? e.message : "could not be read"));
@@ -2229,7 +2482,7 @@ function progressRender(){
   };
   $("reset").onclick = () => {
     if(!confirm("Reset all progress? This can't be undone.")) return;
-    prog = { v:2, w:{}, s:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars };
+    prog = { v:2, w:{}, s:{}, c:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars, mixChars:true };
     store.save(); progressRender();
   };
 }
@@ -2248,7 +2501,8 @@ $("themebtn").onclick = () => {
   // Migration v1 -> v2: PC.migrateProg (shared with the import handler above) bumps a
   // stored v1 progress object to v:2 and defaults the new showChars field; only persist
   // if migration actually changed something, to avoid a needless write on every boot.
-  if(prog.v !== 2 || prog.showChars === undefined || prog.s === undefined){ prog = PC.migrateProg(prog); store.save(); }
+  // Phase 3 adds prog.c (character progress) and prog.mixChars -- same shared migration.
+  if(prog.v !== 2 || prog.showChars === undefined || prog.s === undefined || prog.c === undefined || prog.mixChars === undefined){ prog = PC.migrateProg(prog); store.save(); }
   applyTheme();
   render();
 })();

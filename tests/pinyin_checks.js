@@ -600,5 +600,117 @@ if(SENTENCES){
   })();
 }
 
+// =============================================================== Phase 3: characters
+const util = require("util");
+// --------------------------------------------------------------- check 20
+(function(){
+  // Existing users' progress must survive the Phase 3 migration untouched: every
+  // pre-existing field deep-equal after migrateProg, only c/mixChars added.
+  const v1 = { v:1, w:{"学生":{r:3,w:1,s:1,prov:1},"老师":{r:2,w:0,s:2,d:1}}, sets:{1:3,2:0,3:0,4:0}, lessons:{tones:1}, sessions:4, theme:"dark", dismissedSoundsHint:true };
+  const v2noC = { v:2, w:{"你":{r:5,w:2,s:3}}, s:{"你好。":{r:2,w:0,s:2}}, sets:{1:15,2:15,3:30,4:2}, lessons:{tones:1,initials:1}, sessions:9, theme:null, showChars:true, placedOnce:true, soundsOpened:1 };
+  const current = { v:2, w:{"你":{r:5,w:2,s:3}}, s:{}, c:{"你":{r:4,w:1,s:6}}, sets:{1:15,2:15,3:30,4:0}, lessons:{}, sessions:2, theme:"light", showChars:false, placedOnce:1, soundsOpened:true, mixChars:false };
+  let bad = 0;
+  [["v1", v1], ["v2 without c/mixChars", v2noC], ["current (with c/mixChars)", current]].forEach(([label, orig])=>{
+    const snapshot = JSON.parse(JSON.stringify(orig));
+    const val = PC.validateProgShape(snapshot);
+    const m = PC.migrateProg(val.data);
+    const keys = Object.keys(orig).filter(k=>k!=="v");
+    const preserved = keys.every(k => util.isDeepStrictEqual(m[k], orig[k]));
+    const defaulted = m.v === 2 && typeof m.c === "object" && m.c && typeof m.mixChars === "boolean"
+      && (orig.c === undefined ? util.isDeepStrictEqual(m.c, {}) : true)
+      && (orig.mixChars === undefined ? m.mixChars === true : m.mixChars === orig.mixChars)
+      && (orig.showChars === undefined ? m.showChars === false : true) && typeof m.s === "object";
+    // Round trip: the migrated object must itself validate and re-migrate to itself.
+    const rt = PC.validateProgShape(JSON.parse(JSON.stringify(m)));
+    const idempotent = rt.ok && util.isDeepStrictEqual(PC.migrateProg(rt.data), m);
+    const ok = val.ok && preserved && defaulted && idempotent;
+    if(!ok) bad++;
+    console.log(`    ${ok?"ok ":"BAD"} ${label}: validated=${val.ok} oldFieldsPreserved=${preserved} defaults=${defaulted} roundTrip=${idempotent}`);
+  });
+  console.log(`\n[20] Phase 3 migration preserves existing progress: ${3-bad} / 3 shapes clean`);
+  check("migrateProg preserves every existing field (v1, v2-without-c, current) and adds c:{} / mixChars:true defaults", bad === 0);
+})();
+
+// --------------------------------------------------------------- check 21
+(function(){
+  const good = [ {c:{}}, {c:{"你":{r:1,w:0,s:1}}}, {mixChars:true}, {mixChars:false}, {c:{"你":{}}} ];
+  const badShapes = [ {c:null}, {c:[]}, {c:"x"}, {c:{"你":null}}, {c:{"你":[]}}, {c:{"你":{s:"3"}}}, {mixChars:1}, {mixChars:"true"}, {mixChars:null} ];
+  const goodOk = good.every(d=>PC.validateProgShape(d).ok);
+  const badRejected = badShapes.every(d=>!PC.validateProgShape(d).ok);
+  console.log(`\n[21] validateProgShape c/mixChars: ${good.filter(d=>PC.validateProgShape(d).ok).length}/${good.length} good accepted, ${badShapes.filter(d=>!PC.validateProgShape(d).ok).length}/${badShapes.length} bad rejected`);
+  check("validateProgShape accepts well-formed c/mixChars", goodOk);
+  check("validateProgShape rejects malformed c/mixChars", badRejected);
+})();
+
+// --------------------------------------------------------------- check 22
+(function(){
+  const byW = new Set(VOCAB.map(v=>v.w));
+  let bad = 0, total = 0, sameLv = 0, sameLen = 0; const badEx = [];
+  for(let i=0;i<200;i++){
+    const e = VOCAB[Math.floor(Math.random()*VOCAB.length)];
+    const ds = PC.charOpts(e, VOCAB);
+    const ws = [e.w, ...ds.map(d=>d.w)];
+    const enKey = x => String(x.en).trim().toLowerCase();
+    const ok = ds.length === 3 && new Set(ws).size === 4 && ds.every(d=>byW.has(d.w))
+      && ds.every(d=>enKey(d) !== enKey(e)) && ds.every(d=>PC.pipeline(d.n) !== PC.pipeline(e.n));
+    if(!ok){ bad++; if(badEx.length<5) badEx.push({w:e.w, ds:ds.map(d=>d.w)}); }
+    ds.forEach(d=>{ total++; if(d.lv===e.lv) sameLv++; if([...d.w].length===[...e.w].length && d.lv===e.lv) sameLen++; });
+  }
+  console.log(`\n[22] charOpts over 200 random words: ${200-bad} clean, ${bad} bad; same-level ${total?(sameLv/total).toFixed(2):"n/a"}, same-level+same-length ${total?(sameLen/total).toFixed(2):"n/a"}`);
+  badEx.forEach(b=>console.log("    ", JSON.stringify(b)));
+  check("charOpts: 4 distinct w, all VOCAB, no distractor shares the answer's en or pinyin (200 words)", bad === 0);
+  check("charOpts prefers same level (>=0.95 of distractors)", total && sameLv/total >= 0.95);
+})();
+
+// --------------------------------------------------------------- check 23
+(function(){
+  const cases = [];
+  for(let st=0; st<=9; st++){
+    const expectTier = st < 3 ? "py" : st < 6 ? "ruby" : "bare";
+    cases.push([st, true, true, expectTier]);
+    cases.push([st, true, false, "py"]);   // mixChars off
+    cases.push([st, false, true, "py"]);   // not unlocked
+    cases.push([st, false, false, "py"]);
+  }
+  let bad = 0;
+  cases.forEach(([st, un, mix, exp])=>{ if(PC.sentenceTokenTier(st, un, mix) !== exp) bad++; });
+  const tierOk = PC.charTier(0)==="py" && PC.charTier(2)==="py" && PC.charTier(3)==="ruby" && PC.charTier(5)==="ruby" && PC.charTier(6)==="bare" && PC.charTier(undefined)==="py";
+  console.log(`\n[23] mixed-render tier decision: ${cases.length-bad}/${cases.length} sentenceTokenTier cases correct; charTier boundaries ${tierOk?"ok":"BAD"}`);
+  check("sentenceTokenTier: py <3, ruby 3-5, bare >=6; py whenever locked or mixChars off", bad === 0);
+  check("charTier boundary cases (0,2,3,5,6,undefined)", tierOk);
+})();
+
+// --------------------------------------------------------------- check 24
+(function(){
+  // Gate + placement: placement past HSK 3 must set sets[1..3] to their full set
+  // counts (the last stratum of each level ends exactly at nSets), which is what
+  // charsUnlocked reads.
+  const nsets = {}; [1,2,3,4].forEach(lv=>{ nsets[lv] = Math.ceil(VOCAB.filter(v=>v.lv===lv).length/10); });
+  const st = PC.strata(VOCAB);
+  const lastEndsAtN = [1,2,3,4].every(lv => { const b = st.filter(x=>x.lv===lv); return b[b.length-1].s1 === nsets[lv]; });
+  // Simulate placeResult passing every HSK 1-3 bucket.
+  const sets = {1:0,2:0,3:0,4:0};
+  st.forEach(b=>{ if(b.lv<=3) sets[b.lv] = Math.max(sets[b.lv], b.s1); });
+  const unlockedAfterPlacement = PC.charsUnlocked(sets, nsets);
+  const lockedPartial = !PC.charsUnlocked({1:nsets[1],2:nsets[2],3:nsets[3]-1,4:0}, nsets);
+  const lockedEmpty = !PC.charsUnlocked({}, nsets);
+  console.log(`\n[24] charsUnlocked gate: last stratum ends at nSets for every level=${lastEndsAtN}; placement past HSK3 unlocks=${unlockedAfterPlacement}; one HSK3 set short stays locked=${lockedPartial}`);
+  check("placement strata end exactly at nSets per level (placement past HSK 3 sets the counters charsUnlocked reads)", lastEndsAtN);
+  check("charsUnlocked: true after all HSK 1-3 sets, false one set short / empty", unlockedAfterPlacement && lockedPartial && lockedEmpty);
+})();
+
+// --------------------------------------------------------------- check 25
+(function(){
+  // newCharWords: learned words without a character record, HSK 1 first, VOCAB
+  // (frequency) order within a level, capped at n.
+  const l3 = VOCAB.filter(v=>v.lv===3).slice(0,3), l1 = VOCAB.filter(v=>v.lv===1).slice(0,5);
+  const learned = [...l3, ...l1.slice().reverse()]; // deliberately out of order
+  const c = {}; c[l1[0].w] = {r:1,w:0,s:1};
+  const got = PC.newCharWords(learned, c, VOCAB, 6).map(v=>v.w);
+  const expected = [l1[1].w, l1[2].w, l1[3].w, l1[4].w, l3[0].w, l3[1].w];
+  console.log(`\n[25] newCharWords ordering: got ${JSON.stringify(got)}`);
+  check("newCharWords skips recorded words, orders HSK 1 first then frequency, caps at n", util.isDeepStrictEqual(got, expected));
+})();
+
 console.log(`\n${fails===0?"ALL CHECKS PASSED":"FAILURES: "+fails}`);
 process.exit(fails===0?0:1);
