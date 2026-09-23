@@ -31,6 +31,8 @@ Regenerates `hsk_pinyin.html` and `index.html` from the current `src/` and `data
 
 Open `index.html` (or `src/pinyin_app.html` for development) directly in a browser — no server needed. Progress is stored in `localStorage` (or `window.storage` if the host page provides that shim).
 
+Supported browsers: Chrome, Firefox. Samsung Internet has no working speech synthesis — the app shows a notice and text-based drills still work, but audio doesn't play.
+
 ## Deploy
 
 GitHub Pages is configured to serve from the `main` branch root. Deploying is: run `./build.sh` to refresh `index.html`, commit, and push to `main` — no separate deploy step or CI action.

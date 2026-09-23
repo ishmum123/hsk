@@ -1612,6 +1612,16 @@ function speechNotice(){
   noticeShown = true;
   return `<div class="warn">This browser has no Chinese text-to-speech voice, so listening items show the word instead of playing audio.</div>`;
 }
+// Samsung Internet on Android reports a Chinese voice via speechSynthesis but never
+// actually plays audio, so speechNotice() (which only checks voice availability)
+// misses it. Shown every visit on Today — no dismiss, since the problem persists
+// until the learner switches browser — unlike speechNotice() which is a one-time,
+// any-page notice.
+const isSamsungBrowser = /SamsungBrowser/i.test(navigator.userAgent);
+function samsungNotice(){
+  if(!isSamsungBrowser) return "";
+  return `<div class="warn">Audio doesn't play in Samsung Internet. Open this page in Chrome or Firefox to hear the words.</div>`;
+}
 
 // ===================== speaker icon (one system, three sizes) =====================
 // SVG (currentColor) instead of an emoji, which renders inconsistently across
@@ -2089,8 +2099,8 @@ function todayRender(){
   // another tab.
   const showPlaceHint = !prog.placedOnce;
   const showSoundsHint = !prog.soundsOpened;
-  P.innerHTML = `<div class="drill-body">${pathStrip()}
-    ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
+  P.innerHTML = `<div class="drill-body">${samsungNotice()}${pathStrip()}
+    ${showPlaceHint ?`<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
     ${showChoice ? `<div class="stmt" id="charChoice">Characters next — recognise the words you already know. Or skip to HSK 4 and do characters after. You can change this later in Progress.<button class="next" id="choiceStart" style="margin-top:8px">Start characters</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to HSK 4</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">New to pinyin? A quick lesson explains how it's spelled and sounds.<button class="next" id="hintSounds" style="margin-top:8px">Learn how to read it</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
