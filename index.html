@@ -1699,8 +1699,10 @@ function dnext(){
     // The miss summary embeds each missed item's own reveal HTML (sentence items'
     // reveals carry tappable data-sent/data-widx word spans) directly into this
     // screen, not into #rv — wire taps here too, or they'd sit dead on the done
-    // screen. Harmless no-op for vocab-only summaries (nothing to match).
-    wireSayTaps(P);
+    // screen. Harmless no-op for vocab-only summaries (nothing to match). Wired on
+    // the .done element (replaced by the next innerHTML), never on the persistent
+    // #panel, where the listener would outlive this screen and double-fire taps.
+    wireSayTaps(P.querySelector(".done"));
     // Drill is finished: clear state now, before handing control back, so a stray
     // keystroke or the previous screen's stale handler can't act on an empty queue.
     D = null; drillKeyHandler = null;
@@ -1845,7 +1847,8 @@ function sentenceIndexOf(sentence){ return SENTENCES.indexOf(sentence); }
 // per-word spans). e.target.closest() picks the nearest match, so a tap on a word
 // span inside a whole-sentence row resolves to the word, not the row.
 function wireSayTaps(root){
-  const el = root || $("rv"); if(!el) return;
+  const el = root || $("rv"); if(!el || el.dataset.sayWired) return;
+  el.dataset.sayWired = "1";
   el.addEventListener("click", e => {
     // data-vidx (a VOCAB index) = speak that vocab word (Phase 3 character reveals).
     const t = e.target.closest("[data-sent],[data-vidx]");
