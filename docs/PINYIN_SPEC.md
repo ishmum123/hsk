@@ -25,7 +25,7 @@ Distractors (meaning options) = 3 other VOCAB words: prefer same level; never sa
 Retired from the core: tone-pattern items, typed-pinyin items, the phonetic distractor generator (keep the helpers in core for the optional Extras test only).
 
 ### Screens (bottom tab bar, 5 tabs)
-1. **Today** — plan + "Start today". Steps: Review (15 weakest/provisional, mixed hear/read/recall ≈ 50/25/25) → Learn (next set of 10: teach cards = pinyin + meaning + play button, characters if enabled; then drill 10 × hear + 10 × read) → Listen (12 hear items from learned) → Recall (8 recall items from learned) → summary. Path strip: HSK1 → HSK2 → HSK3 → HSK4 (Sounds removed from the path). First-time hints act directly rather than pointing at another tab: "New here? Placement finds where to start" with a **Take the placement test** button that starts placement immediately and returns to Today when it's done; "New to pinyin?" with a **Learn how to read it** button that opens Sounds lesson 1 immediately and returns to Today on back or done. Each hint hides once its own state is true (placement taken / any lesson opened) — no dismiss button.
+1. **Today** — plan + "Start today". Steps: Review (15 weakest/provisional, mixed hear/read/recall ≈ 50/25/25) → Learn (next set of 10: teach cards = pinyin + meaning + play button, characters if enabled; then drill 10 × hear + 10 × read) → Listen (12 hear items from learned) → Recall (8 recall items from learned) → summary. Path strip: HSK1 → HSK2 → HSK3 → HSK4 (Sounds removed from the path; Phase 3b inserts character stages and changes Review/Learn/Recall once characters start — see Phase 3). First-time hints act directly rather than pointing at another tab: "New here? Placement finds where to start" with a **Take the placement test** button that starts placement immediately and returns to Today when it's done; "New to pinyin?" with a **Learn how to read it** button that opens Sounds lesson 1 immediately and returns to Today on back or done. Each hint hides once its own state is true (placement taken / any lesson opened) — no dismiss button.
 2. **Words** — level chips, set pager, word list (pinyin + meaning, tap row to hear, characters if enabled), "Drill this set". Search box filtering by pinyin or meaning (new).
 3. **Sounds** — v1 lessons + reference chart, unchanged but framed as optional ("Optional: how pinyin sounds and is spelled").
 4. **Test** — Placement (40 vocab items only, hear/read → meaning, strata as v1, rolling-window rule; no foundations block) · Listen 20 · Recall 20 · Extras: Tones 20 / Type 20 (v1 items, from learned words).
@@ -67,24 +67,46 @@ Progress: `prog.s = {sentenceIndex:{r,w,s}}` keyed by `zh`; mastered = streak �
 - Characters remain hidden when `showChars` is false (browser DOM grep as before).
 - A Today session with sentences available runs the step end to end; with none available it skips cleanly.
 
-## Phase 3 — Characters (recognition)
+## Phase 3 — Characters (recognition), as stages of the learning path (Phase 3b)
 
-Goal: once the learner has been taught all HSK 1–3 vocabulary by sound, teach **recognition** of the characters of words they already know, and progressively swap sentence pinyin for characters as per-word character mastery grows. Characters come from VOCAB `w` only (no radicals/components). Never writing.
+Goal: once the learner knows a band of vocabulary by sound, teach **recognition** of the characters of those words, and progressively swap sentence pinyin for characters as per-word character mastery grows. Characters come from VOCAB `w` only (no radicals/components). Never writing. (Phase 3 shipped characters as a separate daily step 6; Phase 3b, 2026-09-23, folded them into the learning path — see Deviations.)
 
-Data/progress: no new data file. `prog.c = {[word]:{r,w,s}}` keyed by VOCAB `w` (same record shape as `prog.s`); a miss resets `s` to 0. Character **mastered** = `s ≥ 3`; **bare** (no pinyin in sentences) = `s ≥ 6` (`PC.CHAR_MASTERED`, `PC.CHAR_BARE`). `prog.mixChars` (boolean, default true) = mix known characters into sentences. Still `v:2` (purely additive). `PC.migrateProg` adds `c:{}` / `mixChars:true` when absent and changes nothing else; `validateProgShape` accepts `c` (same rules as `s`) and `mixChars` (boolean). Boot migration also fires when `c` or `mixChars` is missing; import keeps the current `mixChars` (like `theme`/`showChars`) when the import lacks it; Reset clears `c` and restores `mixChars:true`.
+Data/progress: no new data file. `prog.c = {[word]:{r,w,s}}` keyed by VOCAB `w` (same record shape as `prog.s`); a miss resets `s` to 0. Character **mastered** = `s ≥ 3`; **bare** (no pinyin in sentences) = `s ≥ 6` (`PC.CHAR_MASTERED`, `PC.CHAR_BARE`). `prog.mixChars` (boolean, default true) = mix known characters into sentences. Phase 3b adds two path flags: `prog.charsAfterHsk4` (boolean, default false) and `prog.charsChoiceSeen` (boolean, default false). Still `v:2` (purely additive). `PC.migrateProg` adds `c:{}` / `mixChars:true` / `charsAfterHsk4:false` / `charsChoiceSeen:false` when absent and changes nothing else; `validateProgShape` accepts `c` (same rules as `s`) and the three booleans. Boot migration also fires when any of them is missing; import keeps the current `mixChars` (like `theme`/`showChars`) when the import lacks it (the path flags default false); Reset clears `c`, restores `mixChars:true` and both path flags to false.
 
-Gate: `charsUnlocked()` = `prog.sets[1..3] ≥ nSets(1..3)` (`PC.charsUnlocked(sets, nsets)`). Placement past HSK 3 sets exactly these counters (the last placement stratum of each level ends at `nSets`; node check 24). Before unlock nothing character-related appears in Today/Test/Progress and sentence rendering is unchanged.
+### Learning path
+The path is a sequence of stages (`PC.stagePath(prog, nsets, vocab)`), each shown as a segment of Today's path strip:
+
+| order | stages |
+|---|---|
+| default | HSK1 → HSK2 → HSK3 → **字** (characters of HSK 1–3 words) → HSK4 → **字4** (characters of HSK 4 words) |
+| `charsAfterHsk4` | HSK1 → HSK2 → HSK3 → HSK4 → **字** (characters of HSK 1–4 words, HSK 1 first) |
+
+- **Word stage** fraction = sets taught / sets in the level (as before). **Character stage** fraction = words in its levels with a `prog.c` record / words in its levels.
+- **Character sets** = chunks of 10 (`PC.CHAR_SET_SIZE`) of the stage's words in level order, then VOCAB (frequency) order (`PC.charSets(levels, vocab)`). A set counts as **taught** once every word in it has a `prog.c` record (`PC.charSetTaught`); there is no set counter. `PC.nextCharSet(levels, c, vocab)` = first untaught set.
+- `PC.nextStage(...)` = the first incomplete stage in path order (`null` when everything is done). Today's step 2 **Learn** teaches that stage's next set. The stage and its set are snapshotted at **Start today**, so finishing a stage mid-session never changes what step 2 teaches that session.
+  - Word stage: unchanged (teach cards, then 10 hear + 10 read; `prog.sets[lv]++`).
+  - Character stage: teach cards for the set's 10 words (character large, pinyin, meaning, play glyph), then a 20-item drill: 10 pickChar + 10 readChar, scoring to `prog.c`. Finishing the drill leaves every word in the set recorded, i.e. the set is taught.
+- **Skip choice** (one-time, `PC.showCharChoice`): when all HSK 1–3 sets are taught, HSK 4 is not complete, the 字 1–3 stage is incomplete (so it is the current stage), and neither `charsChoiceSeen` nor `charsAfterHsk4` is set (regardless of existing character records), Today shows a card in place of **Start today**: "Characters next — recognise the words you already know. Or skip to HSK 4 and do characters after." **Start characters** sets `charsChoiceSeen` only; **Skip to HSK 4** sets `charsChoiceSeen` and `charsAfterHsk4`, which reorders the path as in the table. Placement past HSK 3 lands on the same card on the first Today visit.
+
+Gate: `charsUnlocked()` = `PC.charsStarted(prog, nsets, vocab)` = any `prog.c` record exists **or** the current stage is a character stage. It gates Test → Characters, the Progress character rows + mix toggle, sentence mixing, and character items in Review/Recall. Before that nothing character-related appears outside the path strip's static 字 labels, and sentence rendering is unchanged. (`PC.charsUnlocked(sets, nsets)` remains as "all of HSK 1–3 taught".)
 
 ### Item types
 - **readChar** — characters shown large → "What does it mean?" → 4 meanings (`meaningOpts`). No pinyin, no audio in the stimulus.
 - **charSound** — characters shown → "How is it said?" → 4 pinyin options (`pinyinOpts`).
 - **pickChar** — audio auto-plays (speaker glyph to replay) + tone-coloured pinyin shown → "Which one is it?" → 4 character tiles. Distractors `PC.charOpts(entry, pool)`: 3 other VOCAB words, same level + same character count first, then same level, then any; never the same `w`, never the same `en`, never a homophone (same `n`).
-- Reveal (all three): characters, tone-coloured pinyin, meaning; audio plays on reveal for readChar/charSound (pickChar already played it). Tap the reveal to hear it again. Scoring writes `prog.c` only.
+- **recallChar** (Phase 3b) — meaning shown (large, as recall) → "Which character?" → 4 character tiles (`PC.recallCharOpts` = answer + `charOpts` distractors). Keyboard 1–4 via the shared MC renderer.
+- Reveal (all four): characters, tone-coloured pinyin, meaning; audio plays on reveal for readChar/charSound/recallChar (pickChar already played it). Tap the reveal to hear it again. Scoring writes `prog.c` only.
 
-### Where it appears (only when unlocked)
-- **Today**: path strip gains a final **字** stage, fill = characters mastered / all VOCAB words (HSK 1–4). Step 6 **Characters** after Sentences: teach cards for up to 10 new words (`CHAR_NEW_PER_DAY`, via `PC.newCharWords`: learned by sound, no `prog.c` record, HSK 1 first, VOCAB order within level) — character large, pinyin, meaning, play glyph — then a 16-item drill (`CHAR_DRILL_SIZE`): the new words as pickChar/readChar (50/50) plus weakest-first existing records at readChar 40 / charSound 30 / pickChar 30. With no new words left, the step is just the 16-item review. Session summary adds "Characters: N new, M drilled, K missed." (M = distinct words in the drill incl. new ones; K = distinct words missed at least once). One-time hint while `prog.c` is empty: "Characters unlocked — you'll start recognising the words you already know." with a **Learn the first characters** button that runs just the Characters step and returns to Today; it hides once any `prog.c` record exists.
-- **Test**: **Characters N** (N = min(20, pool)) — the three types mixed 40/30/30 from words with `prog.c` records weakest-first, topped up with learned words (HSK 1 first) when fewer than 20 have records; score + missed list (tap to hear), as Sentences 20.
-- **Progress**: per level "HSK n characters: learned X / mastered Y of Z" (learned = has a `prog.c` record, Z = words in the level) and a chip toggle **Mix known characters into sentences** bound to `prog.mixChars`.
+### Today once characters have started
+- **Step 1 Review**: provisional words first (as before, up to 5), then the weakest from a **combined pool** up to **20** items: every learned word (hear/read/recall ≈ 50/25/25, scored on `prog.w`) and every word with a `prog.c` record (readChar/charSound 50/50, scored on `prog.c`). One weakness score, `w*3 − s` over the respective record (`PC.weakScoreOf`, ranking `PC.rankReview`), except that an unmastered character (`s < 3`) scores `max(w*3 − s, 0)` (`PC.charReviewScore`), so fresh characters tie (random tie-break) with never-drilled learned words instead of ranking below all of them; mastered characters keep `w*3 − s`. A missed word outranks a fresh character; fresh characters outrank mastered words. Whether Review and Recall run in unified mode is snapshotted (`charsStarted`) at **Start today**. Before characters start: 15 weakest words exactly as before.
+- **Step 2 Learn**: the current stage's next set (above).
+- **Step 3 Listen**, **Step 5 Sentences**: unchanged.
+- **Step 4 Recall**: 8 items drawn at random from a combined pool — one recall (meaning → pinyin) item per learned word plus one recallChar (meaning → character) item per word with a `prog.c` record. Before characters start: 8 weakest-first recall items exactly as before.
+- No separate Characters step and no characters line in the session summary.
+
+### Elsewhere (only once started)
+- **Test**: **Characters N** (N = min(20, pool)) — readChar/charSound/pickChar 40/30/30 from words with `prog.c` records weakest-first, topped up with learned words (HSK 1 first, `PC.newCharWords`) when fewer than 20 have records; score + missed list (tap to hear), as Sentences 20.
+- **Progress**: one row per character stage, "Characters HSK 1–3 / HSK 4 (or HSK 1–4): learned X / mastered Y of Z" (learned = has a `prog.c` record, Z = words in the stage's levels), and a chip toggle **Mix known characters into sentences** bound to `prog.mixChars`.
 
 ### Mixed-script sentences
 Everywhere a sentence's word-spaced pinyin renders (`sentencePyHTML`: readSentence/gapSentence stimulus, hear/read/gap reveals, no-speech hearSentence fallback, example-sentence lines on word cards and reveals), when `charsUnlocked() && prog.mixChars`, each token renders by its character streak (`PC.sentenceTokenTier(streak, unlocked, mixChars)`). A SENTENCE_EXTRA token uses its `base` word's streak and displays its own characters.
@@ -97,14 +119,32 @@ Everywhere a sentence's word-spaced pinyin renders (`sentencePyHTML`: readSenten
 
 Each token keeps its `data-sent`/`data-widx` wrapper, so tap-to-hear works unchanged. The gap blank and the gap options stay pinyin. `showChars` keeps its meaning (the full character line beside every word/sentence) and is independent of mixing.
 
-**Character-visibility rule, relaxed:** with `showChars` false, VOCAB characters still never appear in the DOM **except** (a) the Characters step (teach cards + drill), (b) the Characters test, (c) mixed sentence tokens whose word has character streak ≥ 3, and (d) the 字 path-strip label (a static UI glyph, like the existing Words-tab icon). All four exist only after unlock.
+**Character-visibility rule, relaxed:** with `showChars` false, VOCAB characters still never appear in the DOM **except** (a) character-stage teach cards and character items (Learn drill, Review, Recall), (b) the Characters test, (c) mixed sentence tokens whose word has character streak ≥ 3, and (d) the path strip's 字 / 字4 stage labels (static UI glyphs, like the Words-tab icon). (a)–(c) exist only once characters have started; (d) is always shown, as part of the full path.
 
 ### Acceptance
-- Existing progress untouched: a v1 export, a v2 export without `c`/`mixChars`, and a current record all keep every existing field exactly through `validateProgShape` + `migrateProg` (node check 20); c/mixChars validation (21).
-- `charOpts` over 200 words: 4 distinct `w`, all VOCAB, no distractor sharing `en` or pinyin with the answer (22).
-- Tier decision: pinyin < 3, ruby 3–5, bare ≥ 6, pinyin whenever locked or `mixChars` off (23). Gate + placement counters (24). New-word ordering (25).
-- Pre-unlock: no Characters step/row/test/toggle/hint, 4-stage path strip, no CJK in `#panel` with `showChars` off (browser DOM grep as before).
-- Unlocked: Today runs Review → … → Sentences → Characters → summary end to end; Characters 20 runs; mix toggle switches sentence rendering between mixed and pure pinyin.
+- Existing progress untouched: a v1 export, a v2 export without `c`/`mixChars`, a v2.2 record, and a 3b record all keep every existing field exactly through `validateProgShape` + `migrateProg`, gaining only the documented defaults (node check 20); c/mixChars validation (21); path-flag validation + migration (26).
+- `charOpts` over 200 words: 4 distinct `w`, all VOCAB, no distractor sharing `en` or pinyin with the answer (22); `recallCharOpts` the same, answer present (30).
+- Tier decision (23). Placement past HSK 3 → 字 1–3 is the current stage (24). `newCharWords` ordering (25). Stage sequencing (27). Character set chunking + taught-iff-recorded (28). Unified review ranking (29). Choice-card gating (31).
+- Before characters start: 5-step Today with a 15-item Review and 8 pinyin-only Recall items, no choice card/character rows/test/toggle, no CJK in `#panel` outside the path strip labels with `showChars` off.
+- Seed B shows the choice card; Start characters → step 2 teaches 10 character cards then a 20-item drill and `prog.c` gains the set's 10 records; Skip → step 2 teaches HSK 4 set 1 and the strip shows 字 after HSK4. Seed C: Review has 20 items with both kinds; Recall can contain recallChar items; Characters N runs; mix toggle switches sentence rendering.
+
+### Browser-verify seeds
+Paste one line into the console on the built page (localStorage key `hsk_pinyin`), which reloads. Set counts: HSK1 15, HSK2 15, HSK3 30, HSK4 60.
+
+```js
+// A — locked, mid-HSK2
+localStorage.setItem("hsk_pinyin",JSON.stringify({v:2,w:{},s:{},c:{},sets:{1:15,2:5,3:0,4:0},lessons:{},sessions:3,theme:"light",showChars:false,mixChars:true,placedOnce:true,soundsOpened:true,charsAfterHsk4:false,charsChoiceSeen:false}));location.reload()
+// B — just finished HSK3, choice not seen
+localStorage.setItem("hsk_pinyin",JSON.stringify({v:2,w:{},s:{},c:{},sets:{1:15,2:15,3:30,4:0},lessons:{},sessions:3,theme:"light",showChars:false,mixChars:true,placedOnce:true,soundsOpened:true,charsAfterHsk4:false,charsChoiceSeen:false}));location.reload()
+// C — 字 (HSK 1–3) in progress: first 30 HSK1 words recorded, streaks 0/1/2/3/4/6/7, every 5th missed twice
+localStorage.setItem("hsk_pinyin",JSON.stringify({v:2,w:{},s:{},c:Object.fromEntries(VOCAB.filter(v=>v.lv===1).slice(0,30).map((v,i)=>{const s=[0,1,2,3,4,6,7][i%7];return[v.w,{r:s+1,w:i%5===0?2:0,s}]})),sets:{1:15,2:15,3:30,4:0},lessons:{},sessions:3,theme:"light",showChars:false,mixChars:true,placedOnce:true,soundsOpened:true,charsAfterHsk4:false,charsChoiceSeen:true}));location.reload()
+// D — legacy v1-shaped record
+localStorage.setItem("hsk_pinyin",JSON.stringify({v:1,w:{"学生":{r:3,w:1,s:1,prov:1},"老师":{r:2,w:0,s:2,d:1}},sets:{1:3,2:0,3:0,4:0},lessons:{tones:1},sessions:4,theme:"dark",dismissedSoundsHint:true}));location.reload()
+// E — charsAfterHsk4, mid-HSK4
+localStorage.setItem("hsk_pinyin",JSON.stringify({v:2,w:{},s:{},c:{},sets:{1:15,2:15,3:30,4:7},lessons:{},sessions:3,theme:"light",showChars:false,mixChars:true,placedOnce:true,soundsOpened:true,charsAfterHsk4:true,charsChoiceSeen:true}));location.reload()
+```
+
+DOM ids: `#charChoice` (card) with `#choiceStart` / `#choiceSkip`; `#go` (Start today, absent while the card shows); `.path .seg` (strip segments); `#ctl .charteach` (character teach cards); `#tChars` (Test → Characters); `#toggleMix` (Progress mix toggle).
 
 ## Deviations
 
@@ -175,3 +215,18 @@ Each token keeps its `data-sent`/`data-widx` wrapper, so tap-to-hear works uncha
 - **Bare mixed-sentence tokens use class `mxzh`** (not `zh`), so they take the surrounding line's size instead of inheriting the `.rowset .zh` / `.wl .zh` fixed sizing inside example rows and reveals.
 - **Characters 20 (Test) is available right at unlock, before any teach cards.** With fewer than 20 records it tops up from learned words, so taking it first creates `prog.c` records (and hides the unlock hint) for words never shown on a teach card. Accepted as spec-conformant (the test draws from learned words); no change.
 - **Characters step raised from 6 new / 8 drilled to 10 new / 16 drilled (2026-09-23).** Matches the 10-words-per-day pace of the Learn step and leaves 6 review slots per session (`CHAR_NEW_PER_DAY`/`CHAR_DRILL_SIZE` in `src/pinyin_app.html`). Below 10 fresh words the drill still caps at 16, with review filling the rest.
+
+### Phase 3b — characters as path stages (2026-09-23)
+
+- **Removed:** Today's step 6 **Characters** (`charStep`), its "Characters: N new, M drilled, K missed." summary line, the one-time "Characters unlocked" hint (`#charHint` / `#hintChars` and its standalone Characters run), `CHAR_NEW_PER_DAY` / `CHAR_DRILL_SIZE`, and the `charsAtStart` unlock snapshot on the session state. The path-strip 字 fraction "characters mastered / all 1193 words" and the per-level Progress character rows are replaced by per-stage fractions and rows (Phase 3 entries above describing these are superseded).
+- **Replaced by:** character stages in the learning path (字 1–3 after HSK 3, 字4 after HSK 4, or one 字 1–4 stage after HSK 4 with `charsAfterHsk4`), taught through step 2 **Learn** in sets of 10 (teach cards, then 10 pickChar + 10 readChar); characters reviewed inside step 1 **Review** (20 weakest across word and character records) and step 4 **Recall** (new `recallChar` item) rather than in a separate step.
+- **Why:** one new-material slot per day — a session teaches either a word set or a character set, never both, so the daily load stays at 10 new items; and characters are reviewed alongside words with one shared weakness score, so a missed character competes for review time with a missed word instead of living in its own fixed-size step.
+- **Gate changed from "HSK 1–3 taught" to "characters have started"** (`PC.charsStarted`: any `prog.c` record, or the current stage is a character stage). A learner who skips to HSK 4 therefore sees nothing character-related until HSK 4 is done, even though HSK 1–3 are taught.
+- **Stage progress is tracked by record presence** (a set is taught iff all its words have a `prog.c` record); no `prog.csets` counter was needed, since the step-2 preview is computed with `PC.nextCharSet`. Consequence: records created elsewhere (Test → Characters tops up from learned words, HSK 1 first) count toward the stage, so a learner who takes the Characters test can find the first sets already taught. Accepted: those words were drilled and scored.
+- **A partially drilled character set is taught again in full.** Quitting the drill midway leaves some words recorded; the next session's step 2 re-teaches all 10 words of that set (the set isn't taught until all 10 have records).
+- **The choice card replaces "Start today" until answered**, so step 2 never starts a stage the learner hasn't chosen. It shows whenever HSK 1–3 are taught, HSK 4 isn't, 字 1–3 is incomplete, and the choice is unanswered — **regardless of existing character records** (review fix): Test → Characters or Review can create records before the card is answered, and v2.2 learners already have records; gating on "no records" would hide the card forever and freeze HSK 4 behind the whole 字 1–3 stage with no way to skip. Not shown when HSK 4 is already complete (nothing to skip to). Not shown to a learner who already finished 字 1–3 (their current stage is already HSK 4). `charsChoiceSeen` is set by either button; there is no UI to undo a skip.
+- **Unmastered characters score at least 0 in the unified Review** (`PC.charReviewScore`). With the plain `w*3 − s`, every learned word without a `prog.w` record (score 0) outranked every fresh character (−1/−2), so a learner placed past HSK 3 would see no characters in Review for many sessions. Clamping unmastered characters to 0 ties them with never-drilled words; mastered characters keep `w*3 − s`.
+- **Unified-mode is snapshotted at "Start today"** (`todayStepState.charsStarted`): Review and Recall read the snapshot, so a stage finished mid-session (e.g. the last HSK 3 set in Learn) doesn't flip Recall into unified mode that session.
+- **Path strip always shows every stage** (six in the default order, five with `charsAfterHsk4`), including the 字 labels before characters start — the strip is a roadmap. The second character stage is labelled **字4** to tell it apart from 字 (HSK 1–3); with `charsAfterHsk4` the single stage is **字**. Visibility exception (d) was widened accordingly.
+- **Unified Recall is random, not weakest-first**, once characters have started (per the Phase 3b brief); before that it is the unchanged weakest-first recall.
+- **Stage keys are `"123"`, `"4"`, `"1234"`** (`levels.join("")`), exposed as `stage.key`.

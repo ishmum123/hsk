@@ -605,12 +605,15 @@ const util = require("util");
 // --------------------------------------------------------------- check 20
 (function(){
   // Existing users' progress must survive the Phase 3 migration untouched: every
-  // pre-existing field deep-equal after migrateProg, only c/mixChars added.
+  // pre-existing field deep-equal after migrateProg, only c/mixChars added -- and
+  // (Phase 3b) charsAfterHsk4/charsChoiceSeen defaulted to false when absent.
   const v1 = { v:1, w:{"学生":{r:3,w:1,s:1,prov:1},"老师":{r:2,w:0,s:2,d:1}}, sets:{1:3,2:0,3:0,4:0}, lessons:{tones:1}, sessions:4, theme:"dark", dismissedSoundsHint:true };
   const v2noC = { v:2, w:{"你":{r:5,w:2,s:3}}, s:{"你好。":{r:2,w:0,s:2}}, sets:{1:15,2:15,3:30,4:2}, lessons:{tones:1,initials:1}, sessions:9, theme:null, showChars:true, placedOnce:true, soundsOpened:1 };
   const current = { v:2, w:{"你":{r:5,w:2,s:3}}, s:{}, c:{"你":{r:4,w:1,s:6}}, sets:{1:15,2:15,3:30,4:0}, lessons:{}, sessions:2, theme:"light", showChars:false, placedOnce:1, soundsOpened:true, mixChars:false };
+  const phase3b = Object.assign(JSON.parse(JSON.stringify(current)), { charsAfterHsk4:true, charsChoiceSeen:true });
   let bad = 0;
-  [["v1", v1], ["v2 without c/mixChars", v2noC], ["current (with c/mixChars)", current]].forEach(([label, orig])=>{
+  const shapes = [["v1", v1], ["v2 without c/mixChars", v2noC], ["v2.2 (with c/mixChars, no path flags)", current], ["3b (path flags set)", phase3b]];
+  shapes.forEach(([label, orig])=>{
     const snapshot = JSON.parse(JSON.stringify(orig));
     const val = PC.validateProgShape(snapshot);
     const m = PC.migrateProg(val.data);
@@ -619,16 +622,22 @@ const util = require("util");
     const defaulted = m.v === 2 && typeof m.c === "object" && m.c && typeof m.mixChars === "boolean"
       && (orig.c === undefined ? util.isDeepStrictEqual(m.c, {}) : true)
       && (orig.mixChars === undefined ? m.mixChars === true : m.mixChars === orig.mixChars)
-      && (orig.showChars === undefined ? m.showChars === false : true) && typeof m.s === "object";
+      && (orig.showChars === undefined ? m.showChars === false : true) && typeof m.s === "object"
+      && (orig.charsAfterHsk4 === undefined ? m.charsAfterHsk4 === false : m.charsAfterHsk4 === orig.charsAfterHsk4)
+      && (orig.charsChoiceSeen === undefined ? m.charsChoiceSeen === false : m.charsChoiceSeen === orig.charsChoiceSeen);
+    // Only the documented defaults may be added.
+    const added = Object.keys(m).filter(k => !(k in orig));
+    const allowed = ["v","w","s","c","sets","lessons","sessions","theme","showChars","mixChars","charsAfterHsk4","charsChoiceSeen"];
+    const onlyDefaults = added.every(k => allowed.includes(k));
     // Round trip: the migrated object must itself validate and re-migrate to itself.
     const rt = PC.validateProgShape(JSON.parse(JSON.stringify(m)));
     const idempotent = rt.ok && util.isDeepStrictEqual(PC.migrateProg(rt.data), m);
-    const ok = val.ok && preserved && defaulted && idempotent;
+    const ok = val.ok && preserved && defaulted && idempotent && onlyDefaults;
     if(!ok) bad++;
-    console.log(`    ${ok?"ok ":"BAD"} ${label}: validated=${val.ok} oldFieldsPreserved=${preserved} defaults=${defaulted} roundTrip=${idempotent}`);
+    console.log(`    ${ok?"ok ":"BAD"} ${label}: validated=${val.ok} oldFieldsPreserved=${preserved} defaults=${defaulted} onlyDefaultsAdded=${onlyDefaults} roundTrip=${idempotent}`);
   });
-  console.log(`\n[20] Phase 3 migration preserves existing progress: ${3-bad} / 3 shapes clean`);
-  check("migrateProg preserves every existing field (v1, v2-without-c, current) and adds c:{} / mixChars:true defaults", bad === 0);
+  console.log(`\n[20] Phase 3/3b migration preserves existing progress: ${shapes.length-bad} / ${shapes.length} shapes clean`);
+  check("migrateProg preserves every existing field (v1, v2-without-c, v2.2, 3b) and adds c:{} / mixChars:true / charsAfterHsk4:false / charsChoiceSeen:false defaults", bad === 0);
 })();
 
 // --------------------------------------------------------------- check 21
@@ -694,7 +703,13 @@ const util = require("util");
   const unlockedAfterPlacement = PC.charsUnlocked(sets, nsets);
   const lockedPartial = !PC.charsUnlocked({1:nsets[1],2:nsets[2],3:nsets[3]-1,4:0}, nsets);
   const lockedEmpty = !PC.charsUnlocked({}, nsets);
-  console.log(`\n[24] charsUnlocked gate: last stratum ends at nSets for every level=${lastEndsAtN}; placement past HSK3 unlocks=${unlockedAfterPlacement}; one HSK3 set short stays locked=${lockedPartial}`);
+  // Phase 3b: placement past HSK 3 makes 字 (1-3) the current stage, so charsStarted
+  // (the app's gate) is true; one set short it is still an HSK 3 word stage.
+  const stAfter = PC.nextStage({sets, c:{}}, nsets, VOCAB);
+  const startedAfterPlacement = stAfter && stAfter.kind === "chars" && stAfter.key === "123" && PC.charsStarted({sets, c:{}}, nsets, VOCAB);
+  const notStartedShort = !PC.charsStarted({sets:{1:nsets[1],2:nsets[2],3:nsets[3]-1,4:0}, c:{}}, nsets, VOCAB);
+  console.log(`\n[24] charsUnlocked gate: last stratum ends at nSets for every level=${lastEndsAtN}; placement past HSK3 unlocks=${unlockedAfterPlacement}; one HSK3 set short stays locked=${lockedPartial}; charsStarted after placement=${startedAfterPlacement}, one short=${!notStartedShort}`);
+  check("charsStarted: placement past HSK 3 -> 字 1-3 is the current stage; one set short -> not started", !!startedAfterPlacement && notStartedShort);
   check("placement strata end exactly at nSets per level (placement past HSK 3 sets the counters charsUnlocked reads)", lastEndsAtN);
   check("charsUnlocked: true after all HSK 1-3 sets, false one set short / empty", unlockedAfterPlacement && lockedPartial && lockedEmpty);
 })();
@@ -710,6 +725,150 @@ const util = require("util");
   const expected = [l1[1].w, l1[2].w, l1[3].w, l1[4].w, l3[0].w, l3[1].w];
   console.log(`\n[25] newCharWords ordering: got ${JSON.stringify(got)}`);
   check("newCharWords skips recorded words, orders HSK 1 first then frequency, caps at n", util.isDeepStrictEqual(got, expected));
+})();
+
+// =============================================================== Phase 3b: characters as a path stage
+const NSETS = {}; [1,2,3,4].forEach(lv=>{ NSETS[lv] = Math.ceil(VOCAB.filter(v=>v.lv===lv).length/10); });
+const recAll = levels => { const c = {}; VOCAB.filter(v=>levels.includes(v.lv)).forEach(v=>{ c[v.w] = {r:1,w:0,s:1}; }); return c; };
+// --------------------------------------------------------------- check 26
+(function(){
+  const good = [ {charsAfterHsk4:true}, {charsAfterHsk4:false}, {charsChoiceSeen:true}, {charsChoiceSeen:false}, {} ];
+  const badShapes = [ {charsAfterHsk4:1}, {charsAfterHsk4:"true"}, {charsAfterHsk4:null}, {charsChoiceSeen:0}, {charsChoiceSeen:"no"}, {charsChoiceSeen:{}} ];
+  const goodOk = good.every(d=>PC.validateProgShape(d).ok);
+  const badRejected = badShapes.every(d=>!PC.validateProgShape(d).ok);
+  // Old records (no flags) migrate with flags false and every old field deep-equal.
+  const old = { v:2, w:{"你":{r:5,w:2,s:3}}, s:{}, c:{"你":{r:4,w:1,s:6}}, sets:{1:15,2:15,3:30,4:0}, lessons:{}, sessions:2, theme:"light", showChars:false, mixChars:false };
+  const m = PC.migrateProg(JSON.parse(JSON.stringify(old)));
+  const oldKept = Object.keys(old).every(k => util.isDeepStrictEqual(m[k], old[k]));
+  const kept = PC.migrateProg({charsAfterHsk4:true, charsChoiceSeen:true});
+  const flagsOk = m.charsAfterHsk4 === false && m.charsChoiceSeen === false && kept.charsAfterHsk4 === true && kept.charsChoiceSeen === true;
+  console.log(`\n[26] path flags: ${good.filter(d=>PC.validateProgShape(d).ok).length}/${good.length} good accepted, ${badShapes.filter(d=>!PC.validateProgShape(d).ok).length}/${badShapes.length} bad rejected; old fields kept=${oldKept}; defaults/kept=${flagsOk}`);
+  check("validateProgShape accepts boolean / rejects non-boolean charsAfterHsk4 & charsChoiceSeen", goodOk && badRejected);
+  check("migrateProg defaults charsAfterHsk4/charsChoiceSeen false, keeps set values and every old field", oldKept && flagsOk);
+})();
+
+// --------------------------------------------------------------- check 27
+(function(){
+  const N = NSETS; const done = {1:N[1],2:N[2],3:N[3],4:N[4]};
+  const lbl = st => st ? (st.kind==="words" ? "HSK"+st.lv : "字"+st.key) : "null";
+  const cases = [
+    ["locked mid-HSK2", {sets:{1:N[1],2:3,3:0,4:0}, c:{}}, "HSK2"],
+    ["HSK3 just done", {sets:{1:N[1],2:N[2],3:N[3],4:0}, c:{}}, "字123"],
+    ["字1-3 partly done", {sets:{1:N[1],2:N[2],3:N[3],4:0}, c:(()=>{ const c = recAll([1]); return c; })()}, "字123"],
+    ["chars 1-3 done", {sets:{1:N[1],2:N[2],3:N[3],4:0}, c:recAll([1,2,3])}, "HSK4"],
+    ["HSK4 done", {sets:done, c:recAll([1,2,3])}, "字4"],
+    ["charsAfterHsk4, HSK3 done", {sets:{1:N[1],2:N[2],3:N[3],4:0}, c:{}, charsAfterHsk4:true}, "HSK4"],
+    ["charsAfterHsk4, HSK4 done", {sets:done, c:{}, charsAfterHsk4:true}, "字1234"],
+    ["all done", {sets:done, c:recAll([1,2,3,4])}, "null"],
+    ["all done (charsAfterHsk4)", {sets:done, c:recAll([1,2,3,4]), charsAfterHsk4:true}, "null"],
+  ];
+  let bad = 0;
+  cases.forEach(([label, p, exp]) => { const got = lbl(PC.nextStage(p, N, VOCAB)); if(got !== exp){ bad++; console.log(`    BAD ${label}: got ${got}, expected ${exp}`); } });
+  const pathDefault = PC.stagePath({sets:{}, c:{}}, N, VOCAB).map(lbl).join(" ");
+  const pathAfter = PC.stagePath({sets:{}, c:{}, charsAfterHsk4:true}, N, VOCAB).map(lbl).join(" ");
+  const orderOk = pathDefault === "HSK1 HSK2 HSK3 字123 HSK4 字4" && pathAfter === "HSK1 HSK2 HSK3 HSK4 字1234";
+  // Fractions: word stage = sets/nSets; char stage = recorded / words in range.
+  const half = PC.stagePath({sets:{1:N[1],2:N[2],3:N[3],4:0}, c:recAll([1])}, N, VOCAB)[3];
+  const nL1 = VOCAB.filter(v=>v.lv===1).length, nL13 = VOCAB.filter(v=>v.lv<=3).length;
+  const fracOk = Math.abs(half.frac - nL1/nL13) < 1e-9 && PC.stagePath({sets:{1:2}}, N, VOCAB)[0].frac === 2/N[1];
+  // charsStarted: records OR current char stage.
+  const startedOk = !PC.charsStarted({sets:{1:1}, c:{}}, N, VOCAB) && PC.charsStarted({sets:{1:1}, c:{"你":{r:1,w:0,s:1}}}, N, VOCAB)
+    && PC.charsStarted({sets:{1:N[1],2:N[2],3:N[3]}, c:{}}, N, VOCAB)
+    && !PC.charsStarted({sets:{1:N[1],2:N[2],3:N[3]}, c:{}, charsAfterHsk4:true}, N, VOCAB);
+  console.log(`\n[27] stage sequencing: ${cases.length-bad}/${cases.length} nextStage cases; path "${pathDefault}" / "${pathAfter}"; fractions ${fracOk?"ok":"BAD"}; charsStarted ${startedOk?"ok":"BAD"}`);
+  check("nextStage: locked / 字1-3 / HSK4 / 字4 / charsAfterHsk4 -> HSK4 then 字1-4 / all done -> null", bad === 0);
+  check("stagePath order (default and charsAfterHsk4) and stage fractions", orderOk && fracOk);
+  check("charsStarted = any record OR current stage is characters", startedOk);
+})();
+
+// --------------------------------------------------------------- check 28
+(function(){
+  const idx = new Map(VOCAB.map((v,i)=>[v.w,i]));
+  const sets = PC.charSets([1,2,3], VOCAB);
+  const flat = sets.flat();
+  const sizesOk = sets.slice(0,-1).every(s=>s.length===10) && sets[sets.length-1].length>=1 && sets[sets.length-1].length<=10;
+  const orderOk = flat.every((v,i)=> i===0 || (flat[i-1].lv < v.lv) || (flat[i-1].lv === v.lv && idx.get(flat[i-1].w) < idx.get(v.w)));
+  const coverOk = flat.length === VOCAB.filter(v=>v.lv<=3).length && flat[0].lv === 1 && sets.length === Math.ceil(flat.length/10);
+  const s0 = sets[0]; const c = {}; s0.slice(0,9).forEach(v=>{ c[v.w] = {r:1,w:0,s:1}; });
+  const partNot = !PC.charSetTaught(s0, c);
+  c[s0[9].w] = {r:0,w:1,s:0};
+  const fullYes = PC.charSetTaught(s0, c);
+  const nx = PC.nextCharSet([1,2,3], c, VOCAB);
+  const nextOk = nx && nx.index === 1 && util.isDeepStrictEqual(nx.words.map(v=>v.w), sets[1].map(v=>v.w)) && nx.total === sets.length;
+  const s4 = PC.charSets([4], VOCAB); const only4 = s4.flat().every(v=>v.lv===4);
+  console.log(`\n[28] character sets: ${sets.length} sets for HSK 1-3 (last ${sets[sets.length-1].length}); sizes ${sizesOk}, order ${orderOk}, coverage ${coverOk}; taught iff all recorded ${partNot && fullYes}; nextCharSet ${!!nextOk}; HSK4-only ${only4}`);
+  check("charSets: chunks of 10, HSK 1 first then VOCAB (frequency) order, cover the stage's levels", sizesOk && orderOk && coverOk && only4);
+  check("a character set is taught iff every word has a prog.c record; nextCharSet returns the first untaught", partNot && fullYes && !!nextOk);
+})();
+
+// --------------------------------------------------------------- check 29
+(function(){
+  // Unified review ranking over word + character records, shared w*3 - s score.
+  const [a,b,cc,d,e,f] = VOCAB.slice(0,6);
+  const wprog = {}; wprog[a.w] = {r:2,w:1,s:0};   // missed word: score 3
+  wprog[b.w] = {r:5,w:0,s:4}; wprog[cc.w] = {r:3,w:0,s:3}; // mastered words: -4, -3
+  const cprog = {}; cprog[d.w] = {r:1,w:0,s:1}; cprog[e.w] = {r:2,w:0,s:2}; // fresh characters: clamp to 0
+  cprog[f.w] = {r:1,w:2,s:0}; // missed character: 6
+  let bad = 0;
+  for(let t=0;t<50;t++){
+    const r = PC.rankReview([a,b,cc], wprog, [d,e,f], cprog, 6).map(x=>x.kind+":"+x.entry.w);
+    const pos = k => r.indexOf(k);
+    const ok = pos("c:"+f.w) === 0 && pos("w:"+a.w) < pos("c:"+d.w) && pos("w:"+a.w) < pos("c:"+e.w)
+      && Math.max(pos("c:"+d.w), pos("c:"+e.w)) < Math.min(pos("w:"+b.w), pos("w:"+cc.w));
+    if(!ok) bad++;
+  }
+  const capped = PC.rankReview([a,b,cc], wprog, [d,e,f], cprog, 2).length === 2;
+  const scoreOk = PC.weakScoreOf({w:2,s:1}) === 5 && PC.weakScoreOf(undefined) === 0
+    && PC.charReviewScore({r:1,w:0,s:1}) === 0 && PC.charReviewScore({r:2,w:0,s:2}) === 0
+    && PC.charReviewScore({r:4,w:0,s:4}) === -4 && PC.charReviewScore({r:1,w:2,s:0}) === 6;
+  // Fresh characters tie with never-drilled learned words (score 0): over many trials
+  // both kinds must win the top slot sometimes (random tie-break), and a fresh
+  // character always outranks a mastered word.
+  const g = VOCAB.slice(6,16); let charFirst = 0, wordFirst = 0;
+  for(let t=0;t<200;t++){
+    const top = PC.rankReview(g, {}, [d], cprog, 1)[0];
+    if(top.kind === "c") charFirst++; else wordFirst++;
+  }
+  const tieOk = charFirst > 0 && wordFirst > 0;
+  console.log(`\n[29] unified review ranking: ${50-bad}/50 trials ordered (missed char > missed word > fresh chars > mastered words); cap ${capped}; score ${scoreOk}; fresh char vs 10 never-drilled words top slot ${charFirst}/${wordFirst}`);
+  check("rankReview: a missed word outranks fresh characters, fresh characters outrank mastered words", bad === 0 && capped && scoreOk);
+  check("charReviewScore: unmastered characters clamp to 0 and tie (random tie-break) with never-drilled words", tieOk);
+})();
+
+// --------------------------------------------------------------- check 30
+(function(){
+  const byW = new Map(VOCAB.map(v=>[v.w, v]));
+  let bad = 0;
+  for(let i=0;i<200;i++){
+    const e = VOCAB[Math.floor(Math.random()*VOCAB.length)];
+    const opts = PC.recallCharOpts(e, VOCAB);
+    const others = opts.filter(w=>w!==e.w).map(w=>byW.get(w));
+    const enKey = x => String(x.en).trim().toLowerCase();
+    const ok = opts.length === 4 && new Set(opts).size === 4 && opts.includes(e.w) && others.length === 3
+      && others.every(o => o && enKey(o) !== enKey(e) && PC.pipeline(o.n) !== PC.pipeline(e.n));
+    if(!ok) bad++;
+  }
+  console.log(`\n[30] recallChar options over 200 random words: ${200-bad} clean, ${bad} bad`);
+  check("recallCharOpts: 4 distinct characters, answer present, no distractor shares en or pinyin", bad === 0);
+})();
+
+// --------------------------------------------------------------- check 31
+(function(){
+  const N = NSETS; const done3 = {1:N[1],2:N[2],3:N[3],4:0};
+  const rec = {"你":{r:1,w:0,s:1}};
+  const cases = [
+    ["HSK3 done, no records, unseen", {sets:done3, c:{}}, true],
+    ["HSK3 done, records present, unseen", {sets:done3, c:rec}, true],
+    ["HSK 1-3 characters all recorded (already on HSK4), unseen", {sets:done3, c:recAll([1,2,3])}, false],
+    ["choice seen", {sets:done3, c:rec, charsChoiceSeen:true}, false],
+    ["charsAfterHsk4", {sets:done3, c:{}, charsAfterHsk4:true}, false],
+    ["HSK4 complete", {sets:{1:N[1],2:N[2],3:N[3],4:N[4]}, c:rec}, false],
+    ["HSK3 one set short", {sets:{1:N[1],2:N[2],3:N[3]-1,4:0}, c:{}}, false],
+  ];
+  let bad = 0;
+  cases.forEach(([label, p, exp]) => { const got = PC.showCharChoice(p, N, VOCAB); if(got !== exp){ bad++; console.log(`    BAD ${label}: got ${got}, expected ${exp}`); } });
+  console.log(`\n[31] choice-card gating: ${cases.length-bad}/${cases.length} cases`);
+  check("showCharChoice: shown iff unseen, order not switched, HSK 1-3 done, HSK 4 not done, 字 1-3 incomplete -- regardless of records", bad === 0);
 })();
 
 console.log(`\n${fails===0?"ALL CHECKS PASSED":"FAILURES: "+fails}`);

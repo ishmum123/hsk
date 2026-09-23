@@ -415,6 +415,11 @@ function validateProgShape(data){
     }
   }
   if(data.mixChars !== undefined && typeof data.mixChars !== "boolean") return {ok:false, reason:"mixChars must be a boolean"};
+  // Phase 3b path flags: characters-after-HSK-4 ordering, and whether the one-time
+  // "characters next / skip to HSK 4" choice card has been answered.
+  for(const f of ["charsAfterHsk4","charsChoiceSeen"]){
+    if(data[f] !== undefined && typeof data[f] !== "boolean") return {ok:false, reason:`${f} must be a boolean`};
+  }
   return {ok:true, data};
 }
 
@@ -427,13 +432,16 @@ function validateProgShape(data){
 // additive): `c` (character progress, {}) and `mixChars` (mix known characters into
 // sentence rendering, true). Every field already present in `data` is carried over
 // untouched -- only missing fields are filled.
+// Phase 3b adds `charsAfterHsk4` / `charsChoiceSeen` (both default false), same rules.
 function migrateProg(data){
-  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{}, c:{}, mixChars:true };
+  const base = { v:2, w:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:null, showChars:false, s:{}, c:{}, mixChars:true, charsAfterHsk4:false, charsChoiceSeen:false };
   const merged = Object.assign({}, base, data||{}, {v:2});
   if(merged.showChars === undefined) merged.showChars = false;
   if(merged.s === undefined) merged.s = {};
   if(merged.c === undefined) merged.c = {};
   if(merged.mixChars === undefined) merged.mixChars = true;
+  if(merged.charsAfterHsk4 === undefined) merged.charsAfterHsk4 = false;
+  if(merged.charsChoiceSeen === undefined) merged.charsChoiceSeen = false;
   return merged;
 }
 
@@ -577,7 +585,8 @@ function gapOpts(entry, pool){
 const CHAR_MASTERED = 3; // "mastered" for Progress / path strip; ruby tier in sentences
 const CHAR_BARE = 6;     // characters alone (no pinyin) in mixed sentences
 
-// Gate: all of HSK 1-3 taught. sets = prog.sets; nsets = {1:n1, 2:n2, 3:n3} (total
+// All of HSK 1-3 taught by sound (the point the 字 1-3 stage becomes reachable).
+// The app's gate for character surfaces is charsStarted() below (Phase 3b). sets = prog.sets; nsets = {1:n1, 2:n2, 3:n3} (total
 // set counts per level, passed in so core stays data-free).
 function charsUnlocked(sets, nsets){
   sets = sets || {};
@@ -637,11 +646,103 @@ function charOpts(entry, pool){
   return chosen.slice(0, 3);
 }
 
+// ------------------------------------------------------ learning path (Phase 3b)
+// The path is a sequence of stages. Word stages teach sets of 10 by sound (progress =
+// prog.sets[lv]); character stages teach recognition of the characters of words
+// already known by sound, in sets of 10 taken from the stage's levels (HSK 1 first,
+// VOCAB/frequency order within a level). A character set counts as taught once every
+// word in it has a prog.c record -- there is no separate counter.
+// Default order: HSK1 -> HSK2 -> HSK3 -> 字(1-3) -> HSK4 -> 字(4).
+// With p.charsAfterHsk4: HSK1 -> HSK2 -> HSK3 -> HSK4 -> 字(1-4).
+const CHAR_SET_SIZE = 10;
+function charStageWords(levels, vocab){
+  const idx = new Map(); (vocab||[]).forEach((v,i)=>idx.set(v.w, i));
+  return (vocab||[]).filter(v => levels.indexOf(v.lv) >= 0)
+    .sort((a,b) => (a.lv - b.lv) || (idx.get(a.w) - idx.get(b.w)));
+}
+function charSets(levels, vocab){
+  const words = charStageWords(levels, vocab); const out = [];
+  for(let i=0; i<words.length; i+=CHAR_SET_SIZE) out.push(words.slice(i, i+CHAR_SET_SIZE));
+  return out;
+}
+function charSetTaught(set, cprog){ const c = cprog || {}; return set.every(v => !!c[v.w]); }
+// First character set in `levels` not yet fully recorded: {index, words, total} or null.
+function nextCharSet(levels, cprog, vocab){
+  const sets = charSets(levels, vocab);
+  for(let i=0; i<sets.length; i++) if(!charSetTaught(sets[i], cprog)) return {index:i, words:sets[i], total:sets.length};
+  return null;
+}
+// p: {sets, c, charsAfterHsk4}; nsets: {1..4: total set counts}; vocab: VOCAB.
+// Returns every stage in path order with {kind, label, frac, done} plus
+// kind "words": lv, set (next set index); kind "chars": levels, key ("13"/"4"/"1234").
+function stagePath(p, nsets, vocab){
+  p = p || {}; const sets = p.sets || {}; const c = p.c || {};
+  const wordStage = lv => {
+    const n = nsets[lv] || 0, k = Math.min(sets[lv] || 0, n);
+    return { kind:"words", lv, label:"HSK"+lv, set:k, frac: n ? k/n : 1, done: k >= n };
+  };
+  const charStage = (levels, label) => {
+    const words = charStageWords(levels, vocab);
+    const rec = words.filter(v => !!c[v.w]).length;
+    return { kind:"chars", levels, key: levels.join(""), label,
+      frac: words.length ? rec/words.length : 1, done: rec >= words.length };
+  };
+  return p.charsAfterHsk4
+    ? [wordStage(1), wordStage(2), wordStage(3), wordStage(4), charStage([1,2,3,4], "字")]
+    : [wordStage(1), wordStage(2), wordStage(3), charStage([1,2,3], "字"), wordStage(4), charStage([4], "字4")];
+}
+function nextStage(p, nsets, vocab){
+  return stagePath(p, nsets, vocab).find(s => !s.done) || null;
+}
+// "Characters have started": any character record exists, or the current stage is a
+// character stage. Gates every character-related surface outside the path strip.
+function charsStarted(p, nsets, vocab){
+  const c = (p && p.c) || {};
+  for(const k in c) if(Object.prototype.hasOwnProperty.call(c, k)) return true;
+  const st = nextStage(p, nsets, vocab);
+  return !!(st && st.kind === "chars");
+}
+// One-time "characters next / skip to HSK 4" choice: shown iff it hasn't been answered,
+// the order hasn't already been switched, HSK 1-3 are all taught, HSK 4 isn't, and the
+// 字 1-3 stage is still incomplete (so the current stage is 字 1-3) -- regardless of
+// whether some character records exist (Test/Review can create records before the
+// card is answered, and v2.2 learners already have some).
+function showCharChoice(p, nsets, vocab){
+  p = p || {}; const sets = p.sets || {}; const c = p.c || {};
+  return !p.charsChoiceSeen && !p.charsAfterHsk4
+    && [1,2,3].every(lv => (sets[lv]||0) >= nsets[lv]) && (sets[4]||0) < nsets[4]
+    && (vocab||[]).some(v => v.lv <= 3 && !c[v.w]);
+}
+// Shared weakness score for word (prog.w) and character (prog.c) records.
+function weakScoreOf(rec){ const p = rec || {}; return (p.w||0)*3 - (p.s||0); }
+// Character records in the unified review: an unmastered character (s < 3) scores at
+// least 0, tying with never-drilled learned words (which score 0), so fresh characters
+// aren't starved by a large pool of unrecorded words; mastered ones keep w*3 - s.
+function charReviewScore(rec){
+  const p = rec || {}; const sc = weakScoreOf(p);
+  return (p.s||0) < CHAR_MASTERED ? Math.max(sc, 0) : sc;
+}
+// Unified Review ranking: words = learned VOCAB entries (weakScoreOf on wprog), chars =
+// entries with a character record (charReviewScore on cprog). Returns the n weakest as
+// [{kind:"w"|"c", entry, score}], random tie-break within equal scores.
+function rankReview(words, wprog, chars, cprog, n){
+  const pool = [
+    ...(words||[]).map(e => ({kind:"w", entry:e, score: weakScoreOf((wprog||{})[e.w])})),
+    ...(chars||[]).map(e => ({kind:"c", entry:e, score: charReviewScore((cprog||{})[e.w])}))
+  ];
+  pool.forEach(x => { x.key = x.score + Math.random()*0.9; });
+  return pool.sort((a,b) => b.key - a.key).slice(0, n).map(({kind, entry, score}) => ({kind, entry, score}));
+}
+// recallChar options: the answer's characters + 3 charOpts distractors (4 strings).
+function recallCharOpts(entry, pool){ return [entry.w, ...charOpts(entry, pool).map(d => d.w)]; }
+
 // ------------------------------------------------------------------- export
 const API = { syll, mark, tones, strip, pyHTML, normType, acceptTypeAnswer, distractors, strata,
   placementStopIndex, validateProgShape, migrateProg, meaningOpts, pinyinOpts, firstTwoWords, gloss, escapeHtml,
   SENTENCE_FUNCTION_WORDS, guessTone, sentenceTokens, sentenceOpts, gapCandidateIndices, gapOpts, capitalizeFirstSpan,
   CHAR_MASTERED, CHAR_BARE, charsUnlocked, charTier, sentenceTokenTier, newCharWords, charOpts,
+  CHAR_SET_SIZE, charStageWords, charSets, charSetTaught, nextCharSet, stagePath, nextStage, charsStarted,
+  weakScoreOf, charReviewScore, showCharChoice, rankReview, recallCharOpts,
   VALID_SYLLABLES, INITIAL_FINALS, splitSyllable, pipeline, numberedCandidates, markSyllable };
 if(typeof module!=="undefined" && module.exports) module.exports = API;
 if(root) root.PinyinCore = API;

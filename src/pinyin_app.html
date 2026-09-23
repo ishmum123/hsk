@@ -293,16 +293,21 @@ function wordExampleSentences(w, n){
   return SENTENCES.filter(s => (s.words||[]).indexOf(w) >= 0).slice(0, n);
 }
 
-// ===================== characters (Phase 3) =====================
-// Recognition of the characters of words already known by sound. Unlocked once every
-// HSK 1-3 set is taught (placement past HSK 3 sets these counters too). Before that,
-// nothing character-related renders anywhere (besides the existing showChars toggle).
-// New-word cap and total drill size for the daily Characters step (charStep below) --
-// also mirrored in todayRender's step preview. 10 new matches Learn's 10-words-per-day
-// pace; 16 drilled leaves 6 review slots when a full 10 fresh words are taught.
-const CHAR_NEW_PER_DAY = 10;
-const CHAR_DRILL_SIZE = 16;
-function charsUnlocked(){ return PC.charsUnlocked(prog.sets, {1:nSets(1), 2:nSets(2), 3:nSets(3)}); }
+// ===================== learning path + characters (Phase 3 / 3b) =====================
+// The path is a sequence of stages (PC.stagePath): HSK1 -> HSK2 -> HSK3 -> 字 (characters
+// of HSK 1-3 words) -> HSK4 -> 字4, or with prog.charsAfterHsk4 HSK1..4 -> 字 (1-4).
+// Today's Learn step teaches the next set of the first incomplete stage (nextStage()).
+// Character sets are chunks of 10 of the stage's words; a set is taught once every
+// word in it has a prog.c record.
+function allNSets(){ return {1:nSets(1), 2:nSets(2), 3:nSets(3), 4:nSets(4)}; }
+function stagePath(){ return PC.stagePath(prog, allNSets(), VOCAB); }
+function nextStage(){ return PC.nextStage(prog, allNSets(), VOCAB); }
+// "Characters have started": any prog.c record exists, or the current stage is a
+// character stage. Before that nothing character-related renders outside the path
+// strip (besides the existing showChars toggle).
+function charsUnlocked(){ return PC.charsStarted(prog, allNSets(), VOCAB); }
+// "1–3" / "4" / "1–4" for a character stage's level range.
+function levelRange(levels){ return levels.length > 1 ? `${levels[0]}–${levels[levels.length-1]}` : String(levels[0]); }
 function markChar(w, ok){
   if(!prog.c) prog.c = {};
   const p = prog.c[w] || {r:0,w:0,s:0};
@@ -684,8 +689,7 @@ function sentenceItemFor(sentence){
 
 // ===================== character item builders (Phase 3) =====================
 // Stimulus never shows pinyin for readChar/charSound (reading the characters is the
-// point); every reveal does. Scoring writes prog.c only, never prog.w. `cw` tags the
-// item with its word so the Today summary can count distinct misses.
+// point); every reveal does. Scoring writes prog.c only, never prog.w.
 function charRevealBlock(entry){
   const vidx = VOCAB.indexOf(entry);
   return `<div data-vidx="${vidx}" style="cursor:pointer"><div class="zhbig" style="font-size:40px;margin:0 0 4px">${escapeHtml(entry.w)}</div>
@@ -696,7 +700,7 @@ const charRevealHook = entry => () => { if(hasSpeech) say(entry.w); wireSayTaps(
 // readChar — characters shown; pick the meaning.
 function readCharItem(entry){
   const ds = PC.meaningOpts(entry, VOCAB);
-  return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero", cw: entry.w,
+  return { kind:"mc", label:"What does it mean?", optsClass:"opts-hero",
     html: `<div class="zhbig">${escapeHtml(entry.w)}</div>`,
     opts: [PC.gloss(entry), ...ds.map(d=>PC.gloss(d))], a: PC.gloss(entry),
     reveal: charRevealBlock(entry), onAnswer: ok=>markChar(entry.w, ok), onReveal: charRevealHook(entry) };
@@ -704,7 +708,7 @@ function readCharItem(entry){
 // charSound — characters shown; pick how it's said.
 function charSoundItem(entry){
   const ds = PC.pinyinOpts(entry, VOCAB);
-  return { kind:"mc", label:"How is it said?", optsClass:"opts-hero", cw: entry.w,
+  return { kind:"mc", label:"How is it said?", optsClass:"opts-hero",
     html: `<div class="zhbig">${escapeHtml(entry.w)}</div>`,
     opts: [PC.mark(entry.n), ...ds.map(d=>PC.mark(d.n))], a: PC.mark(entry.n),
     reveal: charRevealBlock(entry), onAnswer: ok=>markChar(entry.w, ok), onReveal: charRevealHook(entry) };
@@ -712,7 +716,7 @@ function charSoundItem(entry){
 // pickChar — audio + pinyin shown; pick the characters from 4 tiles.
 function pickCharItem(entry){
   const ds = PC.charOpts(entry, VOCAB);
-  return { kind:"mc", label:"Which one is it?", optsClass:"opts-hero opts-zh", cw: entry.w,
+  return { kind:"mc", label:"Which one is it?", optsClass:"opts-hero opts-zh",
     html: (hasSpeech ? `<div class="hear-stage" style="margin:8px 0 10px"><button class="speaker" id="sp" aria-label="Replay">${SPEAKER_SVG}</button></div>` : "")
       + `<div class="big" style="font-size:36px;margin-top:0">${PC.pyHTML(entry.n)}</div>`,
     opts: [entry.w, ...ds.map(d=>d.w)], a: entry.w,
@@ -720,7 +724,16 @@ function pickCharItem(entry){
     mount: () => { if(hasSpeech){ const btn = $("sp"); playWithPulse(entry.w, btn); btn.onclick = ()=>playWithPulse(entry.w, btn); } },
     onReveal: () => wireSayTaps() };
 }
-// Mixed type for a review/test item: readChar 40 / charSound 30 / pickChar 30.
+// recallChar (Phase 3b, Today's Recall) — meaning shown; pick the characters from 4
+// tiles (PC.recallCharOpts = answer + PC.charOpts distractors). Reveal: characters,
+// tone-coloured pinyin, meaning; audio plays on reveal.
+function recallCharItem(entry){
+  return { kind:"mc", label:"Which character?", optsClass:"opts-hero opts-zh",
+    html: `<div class="med" style="text-align:center">${escapeHtml(PC.gloss(entry))}</div>`,
+    opts: PC.recallCharOpts(entry, VOCAB), a: entry.w,
+    reveal: charRevealBlock(entry), onAnswer: ok=>markChar(entry.w, ok), onReveal: charRevealHook(entry) };
+}
+// Mixed type for a test item: readChar 40 / charSound 30 / pickChar 30.
 function charItemFor(entry){
   const r = Math.random();
   return r < 0.4 ? readCharItem(entry) : r < 0.7 ? charSoundItem(entry) : pickCharItem(entry);
@@ -786,40 +799,34 @@ function render(){
 }
 
 // ===================== Today =====================
-// Sounds is optional content, not part of the learning path — the strip is just the
-// four vocab levels now.
-// Phase 3: once characters unlock, a final "字" stage shows mastered characters
-// (prog.c streak >= 3) over all VOCAB words (HSK 1-4).
+// Sounds is optional content, not part of the learning path. Phase 3b: the strip shows
+// every stage of the path in order (word stages: sets taught / sets; character stages:
+// words with a prog.c record / words in the stage's levels).
 function pathStrip(){
-  const stages = [1,2,3,4].map(lv=>({ label:"HSK"+lv, frac: (prog.sets[lv]||0)/nSets(lv) }));
-  if(charsUnlocked()) stages.push({ label:"字", frac: VOCAB.filter(v=>charMastered(v.w)).length / VOCAB.length });
+  const stages = stagePath();
   return `<div class="path">${stages.map(s=>`<div class="seg"><div class="bar"><i style="width:${Math.round(s.frac*100)}%"></i></div>${s.label}</div>`).join("")}</div>`;
 }
 let todayStepState = null;
 function todayRender(){
   setScore(0,0);
-  const P = $("panel"); const lw = learnedWords(); const nn = nextNewSet();
+  const P = $("panel"); const lw = learnedWords(); const st = nextStage();
   const n = (prog.sessions||0) + 1;
   const availSent = availableSentences();
+  const unlocked = charsUnlocked();
+  let learnLine = "everything covered";
+  if(st && st.kind === "words") learnLine = `HSK ${st.lv}, set ${st.set+1}`;
+  else if(st){ const cs = PC.nextCharSet(st.levels, prog.c, VOCAB); learnLine = `Characters (HSK ${levelRange(st.levels)}), set ${cs.index+1} of ${cs.total}`; }
   const steps = [
-    ["Review", lw.length ? "15 items, weakest first" : "nothing learned yet — skipped"],
-    ["Learn", nn ? `HSK ${nn.lv}, set ${nn.set+1}` : "everything covered"],
+    ["Review", lw.length ? (unlocked ? "20 items, weakest first (words + characters)" : "15 items, weakest first") : "nothing learned yet — skipped"],
+    ["Learn", learnLine],
     ["Listen", lw.length ? "12 items" : "skipped until something is learned"],
     ["Recall", lw.length ? "8 items" : "skipped until something is learned"],
     ["Sentences", availSent.length >= 8 ? "8 items, weakest first" : "skipped until 8+ sentences are available"]
   ];
-  const unlocked = charsUnlocked();
-  if(unlocked){
-    // Same counts charStep() will use: up to CHAR_NEW_PER_DAY fresh words, topped up
-    // to CHAR_DRILL_SIZE from existing records (fresh words never have one, so all
-    // records are eligible).
-    const nNew = PC.newCharWords(lw, prog.c, VOCAB, CHAR_NEW_PER_DAY).length;
-    const nItems = nNew + Math.min(CHAR_DRILL_SIZE - nNew, charRecordWords().length);
-    steps.push(["Characters", nNew ? `${nNew} new, then ${nItems} items` : `${nItems} items, weakest first`]);
-  }
-  // One-time: shown once characters unlock, until the first character record exists.
-  // Carries its own action (runs just the Characters step, then returns here).
-  const showCharHint = unlocked && !Object.keys(prog.c||{}).length;
+  // One-time choice once HSK 1-3 are taught and HSK 4 isn't: characters now, or skip
+  // to HSK 4 and do all characters after it (PC.showCharChoice: current stage is 字 1-3,
+  // shown regardless of existing character records).
+  const showChoice = PC.showCharChoice(prog, allNSets(), VOCAB);
   // Both hints hide by real state (placement taken / a lesson opened), not a
   // dismiss button, and each carries the action itself rather than pointing at
   // another tab.
@@ -827,17 +834,29 @@ function todayRender(){
   const showSoundsHint = !prog.soundsOpened;
   P.innerHTML = `<div class="drill-body">${pathStrip()}
     ${showPlaceHint ? `<div class="stmt">New here? Placement finds where to start.<button class="next" id="hintPlace" style="margin-top:8px">Take the placement test</button></div>` : ""}
-    ${showCharHint ? `<div class="stmt" id="charHint">Characters unlocked — you'll start recognising the words you already know.<button class="next" id="hintChars" style="margin-top:8px">Learn the first characters</button></div>` : ""}
+    ${showChoice ? `<div class="stmt" id="charChoice">Characters next — recognise the words you already know. Or skip to HSK 4 and do characters after.<button class="next" id="choiceStart" style="margin-top:8px">Start characters</button><button class="ghost" id="choiceSkip" style="margin-top:8px">Skip to HSK 4</button></div>` : ""}
     ${showSoundsHint ? `<div class="stmt">New to pinyin? A quick lesson explains how it's spelled and sounds.<button class="next" id="hintSounds" style="margin-top:8px">Learn how to read it</button></div>` : ""}
     <p class="q">Session ${n}, about 15 minutes.<br>${lw.length} words learned so far.</p>
     <table class="stats">${steps.map((s,i)=>`<tr><td>${i+1}. ${s[0]}</td><td>${s[1]}</td></tr>`).join("")}</table>
-    </div><div class="actions"><button class="next" id="go">Start today</button></div>`;
+    </div>${showChoice ? "" : `<div class="actions"><button class="next" id="go">Start today</button></div>`}`;
   if(showPlaceHint) $("hintPlace").onclick = enterPlacementFromToday;
   if(showSoundsHint) $("hintSounds").onclick = enterFirstSoundsLessonFromToday;
-  if(showCharHint) $("hintChars").onclick = () => { todayStepState = { step:6, chars:null }; charStep(todayStepState, todayRender); };
-  // Unlock state is snapshotted at session start: finishing the last HSK 3 set
-  // mid-session must not add an unannounced Characters step (next session picks it up).
-  $("go").onclick = () => { todayStepState = { step:0, charsAtStart: charsUnlocked() }; todayStep(); };
+  // The choice card replaces "Start today" until answered, so step 2 never teaches a
+  // stage the learner hasn't chosen.
+  if(showChoice){
+    $("choiceStart").onclick = () => { prog.charsChoiceSeen = true; store.save(); todayRender(); };
+    $("choiceSkip").onclick = () => { prog.charsChoiceSeen = true; prog.charsAfterHsk4 = true; store.save(); todayRender(); };
+    return;
+  }
+  // The stage (and its next set) and whether characters have started are snapshotted
+  // at "Start today", so finishing a stage mid-session never changes what step 2
+  // teaches, nor flips Review/Recall between word-only and unified mode.
+  $("go").onclick = () => {
+    const stage = nextStage();
+    const cset = stage && stage.kind === "chars" ? PC.nextCharSet(stage.levels, prog.c, VOCAB) : null;
+    todayStepState = { step:0, stage, cset, charsStarted: charsUnlocked() };
+    todayStep();
+  };
 }
 // Switches the tab bar to Test/Sounds (for the header title and so the tab
 // highlight stays honest) and jumps straight into the action, instead of landing
@@ -858,26 +877,50 @@ function enterFirstSoundsLessonFromToday(){
   const backToToday = () => { switchToTab("today", "Today"); soundsSel = null; todayRender(); };
   lessonTeach(LESSONS[0], () => { prog.lessons[LESSONS[0].id] = 1; store.save(); backToToday(); }, backToToday);
 }
+// Word review item: hear/read/recall ~50/25/25.
+function wordReviewItem(w){ const r = Math.random(); return r<0.5?hearItem(w):r<0.75?readItem(w):recallItem(w); }
 function todayStep(){
-  const lw = learnedWords(); const nn = nextNewSet();
+  const lw = learnedWords();
   const s = todayStepState.step++;
-  if(s === 0){ // Review: 15 weakest/provisional, mixed hear/read/recall ~50/25/25
+  if(s === 0){ // Review
     if(lw.length >= 5){
       const pv = provPick(lw, 5);
-      const rest = weakFirst(lw.filter(x=>!pv.includes(x)), 15-pv.length);
-      const pool = [...rest, ...pv];
-      const items = shuffle(pool.map(w => { const r = Math.random(); return r<0.5?hearItem(w):r<0.75?readItem(w):recallItem(w); }));
-      drill(items, todayStep, missSummary); return;
+      let items;
+      if(todayStepState.charsStarted){
+        // Phase 3b unified review: provisional words first (as before), then the 20
+        // weakest across learned words (hear/read/recall) and words with a character
+        // record (readChar/charSound 50/50), one shared score w*3 - s over each record.
+        const pvSet = new Set(pv.map(v=>v.w));
+        const ranked = PC.rankReview(lw.filter(x=>!pvSet.has(x.w)), prog.w, charRecordWords(), prog.c, 20-pv.length);
+        items = [...pv.map(wordReviewItem),
+          ...ranked.map(x => x.kind === "w" ? wordReviewItem(x.entry) : (Math.random()<0.5 ? readCharItem(x.entry) : charSoundItem(x.entry)))];
+      } else {
+        // Before characters start: 15 weakest/provisional words, unchanged.
+        const rest = weakFirst(lw.filter(x=>!pv.includes(x)), 15-pv.length);
+        items = [...rest, ...pv].map(wordReviewItem);
+      }
+      drill(shuffle(items), todayStep, missSummary); return;
     }
     return todayStep();
   }
-  if(s === 1){ // Learn: teach the next set of 10, then drill 10x hear + 10x read
-    if(nn){
+  if(s === 1){ // Learn: the snapshotted stage's next set
+    const st = todayStepState.stage;
+    if(st && st.kind === "words"){ // teach the next set of 10, then drill 10x hear + 10x read
+      const nn = { lv: st.lv, set: st.set };
       const list = levelList(nn.lv).slice(nn.set*10, nn.set*10+10);
       vocabTeach(list, nn.lv, () => {
         const items = [];
         list.forEach(w => items.push(hearItem(w), readItem(w)));
         drill(shuffle(items), () => { prog.sets[nn.lv] = nn.set+1; store.save(); todayStep(); }, missSummary);
+      });
+      return;
+    }
+    const cs = todayStepState.cset;
+    if(st && st.kind === "chars" && cs){ // teach the set's 10 characters, then 10x pickChar + 10x readChar
+      charTeach(cs.words, `Characters, HSK ${levelRange(st.levels)} set ${cs.index+1} of ${cs.total}.`, () => {
+        const items = [];
+        cs.words.forEach(w => items.push(pickCharItem(w), readCharItem(w)));
+        drill(shuffle(items), todayStep, missSummary);
       });
       return;
     }
@@ -887,8 +930,16 @@ function todayStep(){
     if(lw.length >= 4){ drill(weakFirst(lw,12).map(w=>hearItem(w)), todayStep, missSummary); return; }
     return todayStep();
   }
-  if(s === 3){ // Recall: 8 recall items from learned words
-    if(lw.length >= 4){ drill(weakFirst(lw,8).map(w=>recallItem(w)), todayStep, missSummary); return; }
+  if(s === 3){ // Recall: 8 items
+    if(lw.length >= 4){
+      if(todayStepState.charsStarted){
+        // Phase 3b: random 8 from a combined pool -- one meaning->pinyin item per
+        // learned word, plus one meaning->character item per word with a record.
+        const pool = [...lw.map(w => () => recallItem(w)), ...charRecordWords().map(w => () => recallCharItem(w))];
+        drill(pick(pool, 8).map(f => f()), todayStep, missSummary); return;
+      }
+      drill(weakFirst(lw,8).map(w=>recallItem(w)), todayStep, missSummary); return;
+    }
     return todayStep();
   }
   if(s === 4){ // Sentences: 8 items hear/read/gap ~50/25/25, from available sentences weakest-first
@@ -896,37 +947,13 @@ function todayStep(){
     if(availSent.length >= 8){ drill(weakFirstSentences(availSent,8).map(sentenceItemFor), todayStep, missSummary); return; }
     return todayStep();
   }
-  if(s === 5){ // Characters (Phase 3, only once HSK 1-3 are taught)
-    if(todayStepState.charsAtStart){ charStep(todayStepState, todayFinish); return; }
-    return todayFinish();
-  }
   todayFinish();
 }
-// Characters step: teach cards for up to CHAR_NEW_PER_DAY new words (learned by sound,
-// no prog.c record yet; HSK 1 first, frequency order), then a CHAR_DRILL_SIZE-item
-// drill -- the new words as pickChar/readChar, topped up weakest-first from existing
-// prog.c records with the readChar 40 / charSound 30 / pickChar 30 mix. Records
-// per-session counts on state.chars for the session summary.
-function charStep(state, onDone){
-  const lw = learnedWords();
-  const fresh = PC.newCharWords(lw, prog.c, VOCAB, CHAR_NEW_PER_DAY);
-  const freshSet = new Set(fresh.map(v=>v.w));
-  const review = weakFirstChars(charRecordWords().filter(v=>!freshSet.has(v.w)), CHAR_DRILL_SIZE - fresh.length);
-  const items = [
-    ...fresh.map(v => Math.random() < 0.5 ? pickCharItem(v) : readCharItem(v)),
-    ...review.map(charItemFor)
-  ];
-  if(!items.length) return onDone();
-  const counts = { fresh: fresh.length, drilled: fresh.length + review.length, missed: 0 };
-  state.chars = counts;
-  const summary = miss => { counts.missed = new Set(miss.map(m=>m.cw)).size; return missSummary(miss); };
-  const run = () => drill(items, onDone, summary);
-  if(fresh.length) charTeach(fresh, run); else run();
-}
-function charTeach(list, onDrill){
+// Character-stage teach cards (Learn step): character large, pinyin, meaning, play glyph.
+function charTeach(list, heading, onDrill){
   setScore(0,0);
   const P = $("panel");
-  P.innerHTML = `<p class="q">Characters for words you already know. Tap one to hear it.</p>
+  P.innerHTML = `<p class="q">${escapeHtml(heading)} Characters for words you already know. Tap one to hear it.</p>
     <div id="ctl"></div><div class="actions"><button class="next" id="dr">Drill these</button></div>`;
   const tl = $("ctl");
   list.forEach(w => {
@@ -941,9 +968,7 @@ function todayFinish(){
   D = null; drillKeyHandler = null; setScore(0,0);
   prog.sessions = (prog.sessions||0) + 1; store.save();
   const P = $("panel");
-  const ch = todayStepState && todayStepState.chars;
-  const charLine = ch ? `<p class="q">Characters: ${ch.fresh} new, ${ch.drilled} drilled, ${ch.missed} missed.</p>` : "";
-  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p>${charLine}<button class="next" id="again">Back to Today</button></div>`;
+  P.innerHTML = `<div class="done"><h2>Session done</h2><p class="q">${learnedWords().length} words learned so far.</p><button class="next" id="again">Back to Today</button></div>`;
   $("again").onclick = todayRender;
 }
 function vocabTeach(list, lv, onDrill){
@@ -1273,15 +1298,15 @@ function progressRender(){
     const masteredN = learnedList.filter(w=>mastered(w.w)).length;
     const sentLv = SENTENCES.filter(s=>s.lv===lv); const sentAvailLv = availSent.filter(s=>s.lv===lv);
     const sentMasteredN = sentAvailLv.filter(s=>sentenceMastered(s.zh)).length;
-    // Phase 3: "learned" = has a prog.c record; mastered = streak >= 3; of all words
-    // in the level. Only rendered once characters are unlocked.
-    const charRow = unlocked ? (() => {
-      const recN = list.filter(w=>(prog.c||{})[w.w]).length, cmN = list.filter(w=>charMastered(w.w)).length;
-      return `<tr><td>HSK ${lv} characters</td><td>learned ${recN} / mastered ${cmN} of ${list.length}</td></tr>`;
-    })() : "";
     return `<tr><td>HSK ${lv}</td><td>${learnedList.length} / ${list.length} learned · ${masteredN} mastered</td></tr>
-      <tr><td>HSK ${lv} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>${charRow}`;
-  }).join("");
+      <tr><td>HSK ${lv} sentences</td><td>${sentAvailLv.length} / ${sentLv.length} available · ${sentMasteredN} mastered</td></tr>`;
+  }).join("") + (unlocked ? stagePath().filter(st=>st.kind==="chars").map(st => {
+    // Phase 3b: one row per character stage. "learned" = has a prog.c record;
+    // mastered = streak >= 3; of all words in the stage's levels.
+    const list = PC.charStageWords(st.levels, VOCAB);
+    const recN = list.filter(w=>(prog.c||{})[w.w]).length, cmN = list.filter(w=>charMastered(w.w)).length;
+    return `<tr><td>Characters HSK ${levelRange(st.levels)}</td><td>learned ${recN} / mastered ${cmN} of ${list.length}</td></tr>`;
+  }).join("") : "");
   const weak = weakFirst(lwAll.filter(w=>weakScore(w.w)>0), 10);
   P.innerHTML = `${hasSpeech ? "" : `<div class="warn">No Chinese text-to-speech voice is available in this browser, so listening and audio-replay features show the word instead of playing sound.</div>`}
     <table class="stats">${rows}
@@ -1336,7 +1361,7 @@ function progressRender(){
   };
   $("reset").onclick = () => {
     if(!confirm("Reset all progress? This can't be undone.")) return;
-    prog = { v:2, w:{}, s:{}, c:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars, mixChars:true };
+    prog = { v:2, w:{}, s:{}, c:{}, sets:{1:0,2:0,3:0,4:0}, lessons:{}, sessions:0, theme:prog.theme, showChars:prog.showChars, mixChars:true, charsAfterHsk4:false, charsChoiceSeen:false };
     store.save(); progressRender();
   };
 }
@@ -1355,8 +1380,10 @@ $("themebtn").onclick = () => {
   // Migration v1 -> v2: PC.migrateProg (shared with the import handler above) bumps a
   // stored v1 progress object to v:2 and defaults the new showChars field; only persist
   // if migration actually changed something, to avoid a needless write on every boot.
-  // Phase 3 adds prog.c (character progress) and prog.mixChars -- same shared migration.
-  if(prog.v !== 2 || prog.showChars === undefined || prog.s === undefined || prog.c === undefined || prog.mixChars === undefined){ prog = PC.migrateProg(prog); store.save(); }
+  // Phase 3 adds prog.c (character progress) and prog.mixChars, Phase 3b the path flags
+  // charsAfterHsk4 / charsChoiceSeen -- same shared migration.
+  if(prog.v !== 2 || prog.showChars === undefined || prog.s === undefined || prog.c === undefined || prog.mixChars === undefined
+    || prog.charsAfterHsk4 === undefined || prog.charsChoiceSeen === undefined){ prog = PC.migrateProg(prog); store.save(); }
   applyTheme();
   render();
 })();
