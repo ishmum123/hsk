@@ -3,3 +3,5 @@ hsk_characters.html
 .DS_Store
 .claude/
 shots*/
+.venv/
+.cache/
