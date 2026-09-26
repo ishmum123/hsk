@@ -41,3 +41,9 @@ Every engine bump into this repo needs, before merging/pushing:
 3. A live snapshot diff by a browser worker against the previous published
    build (progress intact, no console errors).
 4. The rollback commit hash recorded before pushing.
+
+Migration proof 2026-09-26 for 4e5d4dc (engine 63109a7 → 3fd45bf): a real-use vocab_zh snapshot
+from d612e63 (39 word records, 4 sets, 2 lessons, 3 sessions, theme, showPron) loaded into the live
+build with 0 field diffs after a full UI walk, offline boot and two reloads; a legacy hsk_pinyin
+record migrated byte-identically to the old build's result with the .bak key kept. Inputs and
+scripts: .cache/live/ (gitignored).
